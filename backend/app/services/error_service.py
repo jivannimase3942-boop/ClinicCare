@@ -22,7 +22,7 @@ class ErrorService:
         """Builds structured alert message details for monitoring/email alerting."""
         subject = f"[{error_level}] Alert: {service_name} error on {endpoint or 'system'}"
         body = (
-            f"Hospital AI Automation System Alert\n"
+            f"ClinicCare System Alert\n"
             f"====================================\n"
             f"Severity: {error_level}\n"
             f"Service: {service_name}\n"

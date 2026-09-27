@@ -54,7 +54,7 @@ class RuleBasedFallbackProvider(BaseAIProvider):
         suggested_actions = ["Check Doctors", "Book Appointment", "Check Report Status", "Request Call"]
 
         # 0. About ClinicCare Platform
-        if any(w in msg for w in ["what is cliniccare", "about cliniccare", "who are you", "what does cliniccare do", "what is this platform", "what is carepulse", "about this app", "kya hai cliniccare"]):
+        if any(w in msg for w in ["what is cliniccare", "about cliniccare", "who are you", "what does cliniccare do", "what is this platform", "about this app", "kya hai cliniccare"]):
             intent = "about_cliniccare"
             reply = (
                 f"🏥 **Welcome to ClinicCare**\n\n"

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 def run_verification():
-    print("=== CarePulse Hospital AI Automation Live Verification ===")
+    print("=== ClinicCare Live Verification ===")
     client = TestClient(app)
 
     # 1. Health check

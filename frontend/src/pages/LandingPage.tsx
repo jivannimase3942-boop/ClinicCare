@@ -31,35 +31,35 @@ export const LandingPage: React.FC = () => {
     {
       icon: CalendarCheck,
       title: 'Appointment Booking',
-      desc: 'Conflict-free appointment booking, specialist doctors, live time slots, rescheduling, and cancellation.',
+      desc: 'Browse specialists, check stored appointment slots, book, reschedule, or cancel.',
       link: '/patient/appointments/book',
       color: 'bg-sky-50 text-sky-600 border-sky-100',
     },
     {
       icon: Sparkles,
       title: 'AI Health Assistant',
-      desc: 'Smart administrative guidance, general medication lookup (e.g. cetirizine), and strict clinical safety guardrails.',
+      desc: 'Administrative service guidance with strict clinical safety guardrails.',
       link: '/patient/chat',
       color: 'bg-teal-50 text-teal-600 border-teal-100',
     },
     {
       icon: Truck,
       title: 'Ambulance Coordination',
-      desc: 'Emergency ambulance request dispatch, live fleet status (BLS/ALS), and simulated ETA tracking.',
+      desc: 'Submit ambulance requests and review recorded fleet status; dispatch and location data are simulated.',
       link: '/patient/ambulance',
       color: 'bg-rose-50 text-rose-600 border-rose-100',
     },
     {
       icon: Droplet,
       title: 'Blood Group Search',
-      desc: 'Instant search across 8 blood groups (A+, O+, B-, etc.), units in reserve, and 24/7 blood bank directory.',
+      desc: 'Search stored inventory across 8 blood groups and submit blood requirement requests.',
       link: '/patient/blood',
       color: 'bg-pink-50 text-pink-600 border-pink-100',
     },
     {
       icon: Building2,
       title: 'Healthcare Facilities',
-      desc: 'Directory of main hospital campuses, family clinics, trauma centers, and diagnostic pathology labs.',
+      desc: 'Search the stored hospital, clinic, trauma, and diagnostic facility directory.',
       link: '/patient/facilities',
       color: 'bg-indigo-50 text-indigo-600 border-indigo-100',
     },
@@ -88,10 +88,10 @@ export const LandingPage: React.FC = () => {
 
 
   const stats = [
-    { value: '100%', label: 'Deterministic Data Fallback' },
-    { value: '8', label: 'Core Medical Modules' },
-    { value: '< 5 Min', label: 'Ambulance Triage Response' },
-    { value: '24/7', label: 'Emergency Ready Hub' },
+    { value: '8', label: 'Core Coordination Modules' },
+    { value: 'Stored', label: 'Database-backed records' },
+    { value: 'Demo', label: 'Simulated dispatch status' },
+    { value: 'Optional', label: 'External integrations' },
   ]
 
   return (

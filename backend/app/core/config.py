@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "ClinicCare - Hospital AI Automation"
+    PROJECT_NAME: str = "ClinicCare"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
     PORT: int = 8000

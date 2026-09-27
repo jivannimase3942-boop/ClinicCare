@@ -51,7 +51,7 @@ def test_full_application():
             pg = ctx.new_page()
             try:
                 pg.goto("http://127.0.0.1:5173", wait_until="networkidle")
-                assert pg.is_visible("text=CarePulse") or pg.is_visible("header")
+                assert pg.is_visible("text=ClinicCare") or pg.is_visible("header")
                 print(f"  [OK] {name} rendered navigation and landing page.")
             except Exception as e:
                 print(f"  [FAIL] {name}: {e}")
@@ -82,7 +82,7 @@ def test_full_application():
         # Website Load
         print("\n--- 3. WEBSITE LOAD & NAVIGATION ---")
         page.goto("http://127.0.0.1:5173", wait_until="networkidle")
-        assert "CarePulse" in page.title()
+        assert "ClinicCare" in page.title()
         results["WEBSITE"] = "PASS"
 
         # Navigate to login & test invalid credentials
