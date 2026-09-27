@@ -23,12 +23,138 @@ from app.models.reminder import FollowUpReminder
 
 
 
+
+def ensure_demo_accounts(db: SessionLocal):
+    """Guarantees all 4 demo role logins exist and have valid credentials and active profiles."""
+    from app.core.security import get_password_hash
+    from app.models.user import User, Patient, Doctor, Department
+
+    # 1. Admin
+    admin = db.query(User).filter(User.email == "admin@hospital.com").first()
+    if not admin:
+        admin = User(
+            email="admin@hospital.com",
+            password_hash=get_password_hash("Admin@123"),
+            full_name="Hospital Administrator",
+            phone="+1 (800) 555-0100",
+            role="ADMIN",
+            is_active=True,
+        )
+        db.add(admin)
+        db.flush()
+    else:
+        admin.password_hash = get_password_hash("Admin@123")
+        admin.is_active = True
+        admin.role = "ADMIN"
+
+    # 2. Front Desk
+    frontdesk = db.query(User).filter(User.email == "frontdesk@hospital.com").first()
+    if not frontdesk:
+        frontdesk = User(
+            email="frontdesk@hospital.com",
+            password_hash=get_password_hash("FrontDesk@123"),
+            full_name="Front Desk Reception",
+            phone="+1 (800) 555-0101",
+            role="FRONT_DESK",
+            is_active=True,
+        )
+        db.add(frontdesk)
+        db.flush()
+    else:
+        frontdesk.password_hash = get_password_hash("FrontDesk@123")
+        frontdesk.is_active = True
+        frontdesk.role = "FRONT_DESK"
+
+    # 3. Patient
+    pat_user = db.query(User).filter(User.email == "patient@hospital.com").first()
+    if not pat_user:
+        pat_user = User(
+            email="patient@hospital.com",
+            password_hash=get_password_hash("Patient@123"),
+            full_name="John Doe",
+            phone="+1 (555) 123-4567",
+            role="PATIENT",
+            is_active=True,
+        )
+        db.add(pat_user)
+        db.flush()
+    else:
+        pat_user.password_hash = get_password_hash("Patient@123")
+        pat_user.is_active = True
+        pat_user.role = "PATIENT"
+
+    if not pat_user.patient_profile:
+        pat_prof = Patient(
+            user_id=pat_user.id,
+            date_of_birth=date(1988, 5, 14),
+            gender="male",
+            blood_group="O+",
+            address="123 Maple Street, Cityville",
+            emergency_contact="Jane Doe - +1 (555) 987-6543",
+        )
+        db.add(pat_prof)
+        db.flush()
+
+    # 4. Doctors: dr.sharma@hospital.com & doctor@hospital.com
+    first_dept = db.query(Department).first()
+    if not first_dept:
+        first_dept = Department(
+            name="Cardiology",
+            description="Specialized cardiovascular and heart care unit.",
+            icon="Heart",
+            is_active=True
+        )
+        db.add(first_dept)
+        db.flush()
+
+    for doc_email in ["dr.sharma@hospital.com", "doctor@hospital.com"]:
+        doc_u = db.query(User).filter(User.email == doc_email).first()
+        if not doc_u:
+            doc_u = User(
+                email=doc_email,
+                password_hash=get_password_hash("Doctor@123"),
+                full_name="Dr. Rajesh Sharma",
+                phone="+1 (800) 555-0110",
+                role="DOCTOR",
+                is_active=True,
+            )
+            db.add(doc_u)
+            db.flush()
+        else:
+            doc_u.password_hash = get_password_hash("Doctor@123")
+            doc_u.is_active = True
+            doc_u.role = "DOCTOR"
+
+        if not doc_u.doctor_profile:
+            doc_p = Doctor(
+                user_id=doc_u.id,
+                department_id=first_dept.id,
+                specialization="Interventional Cardiologist",
+                qualification="MD, DM (Cardiology), FACC",
+                experience_years=15,
+                consultation_fee=120.00,
+                location="Block A, OPD 101",
+                available_days="Monday,Tuesday,Wednesday,Thursday,Friday,Saturday",
+                available_hours_start="09:00",
+                available_hours_end="17:00",
+                slot_duration_minutes=30,
+                is_active=True,
+            )
+            db.add(doc_p)
+            db.flush()
+
+    db.commit()
+
+
 def seed_database():
     print("Initializing database tables...")
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
 
     try:
+        # Guarantee demo accounts exist and are functional
+        ensure_demo_accounts(db)
+
         # Check if already seeded
         admin_check = db.query(User).filter(User.email == "admin@hospital.com").first()
         if admin_check:
@@ -119,6 +245,7 @@ def seed_database():
 
         print("Seeding Doctors...")
         doctors_info = [
+            ("doctor@hospital.com", "Dr. Rajesh Sharma", "Cardiology", "Chief Medical Officer & Cardiologist", "MD, DM, FACC", 18, 120.00, "Block A, OPD 100", "Monday,Tuesday,Wednesday,Thursday,Friday,Saturday"),
             ("dr.sharma@hospital.com", "Dr. Rajesh Sharma", "Cardiology", "Interventional Cardiologist", "MD, DM (Cardiology), FACC", 15, 120.00, "Block A, OPD 101", "Monday,Tuesday,Wednesday,Thursday,Friday"),
             ("dr.patel@hospital.com", "Dr. Ananya Patel", "Cardiology", "Electrophysiologist & Heart Care", "MBBS, MD, FESC", 11, 110.00, "Block A, OPD 102", "Monday,Wednesday,Friday,Saturday"),
             ("dr.chen@hospital.com", "Dr. Marcus Chen", "Neurology", "Senior Neurosurgeon", "MD, MCh (Neurosurgery)", 18, 150.00, "Block B, OPD 201", "Monday,Tuesday,Thursday,Friday"),

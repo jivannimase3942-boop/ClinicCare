@@ -35,8 +35,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userData = await authService.getMe()
       setUser(userData)
       localStorage.setItem('cliniccare_user', JSON.stringify(userData))
-    } catch {
-      logout()
+    } catch (err: any) {
+      const msg = err?.message?.toLowerCase() || ''
+      if (err?.response?.status === 401 || msg.includes('unauthorized') || msg.includes('token') || msg.includes('forbidden')) {
+        logout()
+      }
     } finally {
       setIsLoading(false)
     }

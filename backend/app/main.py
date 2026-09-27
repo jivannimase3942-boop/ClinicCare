@@ -37,6 +37,12 @@ from app.api.routes import (
 async def lifespan(app: FastAPI):
     # Initialize DB tables if SQLite or fresh DB
     Base.metadata.create_all(bind=engine)
+    try:
+        from app.db.seed import seed_database
+        seed_database()
+        print("[ClinicCare] Database initialized and verified with seed data.")
+    except Exception as e:
+        print(f"[ClinicCare] Warning during seed_database in lifespan: {e}")
     yield
 
 
@@ -47,10 +53,28 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS Middleware
+# CORS Middleware with explicit production frontend and development origins
+cors_origins = [
+    "https://cliniccare-g3c6.onrender.com",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+]
+if isinstance(settings.CORS_ORIGINS, list):
+    for origin in settings.CORS_ORIGINS:
+        if origin not in cors_origins and origin != "*":
+            cors_origins.append(origin)
+elif isinstance(settings.CORS_ORIGINS, str) and settings.CORS_ORIGINS != "*":
+    for origin in settings.CORS_ORIGINS.split(","):
+        o = origin.strip()
+        if o and o not in cors_origins:
+            cors_origins.append(o)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS if isinstance(settings.CORS_ORIGINS, list) else ["*"],
+    allow_origins=cors_origins,
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
@@ -103,7 +127,35 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Health Check
+# Root & Health Endpoints
+@app.get("/", tags=["Root"])
+def root_endpoint():
+    return {
+        "success": True,
+        "service": settings.PROJECT_NAME,
+        "status": "online",
+        "version": "1.0.0",
+        "docs_url": "/docs",
+        "api_docs_url": "/docs",
+    }
+
+
+@app.get("/api", tags=["Root"])
+def api_root_endpoint():
+    return {
+        "success": True,
+        "service": settings.PROJECT_NAME,
+        "status": "online",
+        "version": "1.0.0",
+        "docs_url": "/docs",
+    }
+
+
+@app.get("/api/health", tags=["Health"])
+def api_health_check():
+    return health_check()
+
+
 @app.get("/health", tags=["Health"])
 def health_check():
     db_status = "healthy"

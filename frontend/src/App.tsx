@@ -146,6 +146,10 @@ export const App: React.FC = () => {
                 <Route path="errors" element={<AdminErrors />} />
               </Route>
 
+              {/* Front Desk Redirect */}
+              <Route path="/frontdesk/*" element={<Navigate to="/admin/dashboard" replace />} />
+              <Route path="/frontdesk" element={<Navigate to="/admin/dashboard" replace />} />
+
               {/* Fallback */}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

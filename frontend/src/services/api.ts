@@ -1,9 +1,16 @@
 import axios, { AxiosError } from 'axios'
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta.env?.PROD ? 'https://cliniccare-backend-48g6.onrender.com/api' : 'http://localhost:8000/api')
+let rawBaseUrl = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? 'https://cliniccare-backend-48g6.onrender.com/api' : 'http://localhost:8000/api')
+
+// Ensure valid baseURL ending with /api and no trailing slashes or duplicate /api/api
+let cleanBaseUrl = (rawBaseUrl || '').trim().replace(/\/+$/, '')
+if (!cleanBaseUrl.endsWith('/api')) {
+  cleanBaseUrl = `${cleanBaseUrl}/api`
+}
 
 export const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: cleanBaseUrl,
+  timeout: 30000, // 30s timeout prevents infinite processing / spinner states
   headers: {
     'Content-Type': 'application/json',
   },
@@ -32,14 +39,21 @@ api.interceptors.response.use(
         window.location.href = '/login'
       }
     }
-    const errorMessage =
+
+    let errorMessage =
       error.response?.data?.detail ||
       error.response?.data?.message ||
       error.message ||
       'An unexpected error occurred'
+
+    if (error.code === 'ECONNABORTED' || (error.message && error.message.toLowerCase().includes('timeout'))) {
+      errorMessage = 'The request timed out. Render backend may be waking up from sleep. Please try again.'
+    } else if (error.message === 'Network Error') {
+      errorMessage = 'Unable to connect to ClinicCare server. Please check your network connection.'
+    }
+
     return Promise.reject(new Error(errorMessage))
   }
 )
 
 export default api
-

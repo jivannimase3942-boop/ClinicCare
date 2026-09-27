@@ -26,7 +26,8 @@ export const LoginPage: React.FC = () => {
       } else if (user.role === 'DOCTOR') {
         navigate('/doctor/dashboard', { replace: true })
       } else {
-        navigate(from === '/login' ? '/patient/dashboard' : from, { replace: true })
+        const dest = (!from || from === '/login' || from === '/') ? '/patient/dashboard' : from
+        navigate(dest, { replace: true })
       }
     } catch {
       // Handled by toast in AuthContext
