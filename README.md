@@ -1,125 +1,119 @@
-# ClinicCare — Hospital AI Automation & Patient Orchestration Platform
-### Built for FIT-FEST 2026 Hackathon (Google Cloud / Production Ready)
+# ClinicCare
 
-ClinicCare is an enterprise-grade hospital and clinic automation system featuring patient appointment booking, doctor schedule management, medical-safe AI chat assistant with multi-tool calling and zero-latency deterministic fallback, emergency triage, ambulance fleet dispatch, 24/7 blood bank inventory & requirement coordination across 8 blood groups, healthcare facilities directory, WhatsApp Cloud API webhooks, AI voice calling dispatch, diagnostic report notifications, 1-5 star patient feedback loops, front-desk emergency escalations, follow-up reminders, and automated n8n workflow integrations.
+ClinicCare is a clinic appointment, patient, and emergency coordination system built for the FIT-FEST project. It combines patient-facing workflows with administrative tools using a React frontend and a FastAPI backend.
 
----
+## Problem
 
-## 🏆 FIT-FEST 2026 Core Capabilities & Architectural Blueprint
+Clinics need a straightforward way to coordinate patient registration, appointments, emergency requests, ambulance availability, blood requirements, and facility information.
 
-ClinicCare fully addresses the 8 critical healthcare workflow modules with 100% test coverage and production validation:
+## Solution
 
-### 1. 📅 Patient Appointment Booking & Doctor Scheduling
-- **Doctor & Specialty Directory**: Comprehensive listings with consulting hours, department categorization, and consultation fees.
-- **Dynamic Slot Generation & Conflict Prevention**: Live unbooked slot calculation per doctor/date with optimistic locking.
-- **Self-Service Rescheduling & Cancellation**: Safe status transitions (`scheduled`, `completed`, `cancelled`) with audit notes.
+ClinicCare provides those workflows through a shared web application, backed by REST APIs and a relational database. AI assistance uses configured providers when available and existing deterministic responses otherwise.
 
-### 2. 🤖 24/7 AI Health Assistant & Multi-Tool Agent
-- **Gemini 1.5 Flash + Rule-Based Deterministic Fallback Provider**: Works with zero dependencies on external LLM keys during judging or evaluations.
-- **Tool-Calling Architecture**: Automatically queries doctor availability, checks unbooked slots, books appointments, retrieves report statuses, and initiates voice callbacks.
-- **Strict Medical Safety Guardrails**: Zero tolerance for unofficial diagnoses or dosages. Always guides to certified specialists and instantly escalates critical symptoms.
+## Key Features
 
-### 3. 🚑 Emergency Ambulance Dispatch & Live Fleet Management
-- **One-Touch Emergency Dispatch**: Rapid dispatch with priority categorization (`critical`, `high`, `medium`).
-- **Live Fleet Tracking & Simulation**: Real-time vehicle status (`available`, `busy`, `maintenance`), driver assignments, and base station telemetry.
-- **Code Red Emergency Triage Board**: Centralized administrative board for trauma escalations and hotline alerts.
+- Patient registration, profile information, directory search, and appointment history.
+- Appointment booking, scheduling, status tracking, and follow-up reminders.
+- Administrative dashboard, appointment coordination, and emergency statistics.
+- Emergency request intake and an administrative triage board.
+- Ambulance request, fleet availability, request status, assignment, and recorded location.
+- Blood group search, bank directory, requirement requests, and request management.
+- Healthcare facility search and information directory.
+- AI assistant for administrative and service-navigation questions, with safety guardrails.
 
-### 4. 🩸 Blood Bank Directory, Inventory Matrix & Requisitions
-- **8 Blood Groups Matrix**: Real-time inventory levels for `A+`, `A-`, `B+`, `B-`, `AB+`, `AB-`, `O+`, and `O-`.
-- **Public & Patient Blood Requisitions**: Urgent blood requests with automated bank matching, urgency tracking, and hospital delivery coordination.
-- **Admin Inventory Controls**: Direct stock adjustments and status badges (`available`, `low_stock`, `critical_need`).
+Demo records are not live clinical, inventory, location, or dispatch data.
 
-### 5. 🏥 Network Healthcare Facilities Directory
-- **Verified Facility Explorer**: Filter by facility type (Multispeciality Hospital, Outpatient Clinic, Diagnostic Center, Trauma Unit).
-- **Direct Emergency Hotlines**: 24/7 emergency hotlines, operating hours, addresses, and service listings.
+## FIT-FEST Requirements
 
-### 6. 📋 Patient Visit History & Automated Follow-Up Reminders
-- **Clinical Records & Vitals**: Detailed visit logs, diagnoses summary, BP/Pulse/SpO2 vitals, and physician instructions.
-- **Automated Reminders**: Follow-up appointment scheduling, multi-channel dispatch simulation (WhatsApp/SMS), and reminder queues.
+The project includes patient registration and search; appointment booking, status, history, and reminders; clinic administration and statistics; emergency request management; ambulance requests and fleet status; blood search and request management; facility search; and AI service guidance. Feature behavior depends on the configured database and integrations.
 
-### 7. 📞 Voice Call Request & WhatsApp Cloud Webhooks
-- **Automated Voice Callback Queue**: Instant dispatch to AI voice agent provider.
-- **Diagnostic Report Notifications**: Automated scanner for pathology/radiology reports triggering secure download alerts.
+> ClinicCare is an administrative and healthcare coordination platform. It does not provide medical diagnosis, treatment recommendations, prescriptions, or medical decision-making.
 
-### 8. 📊 Comprehensive Administrative Console & Real-Time Analytics
-- **Live KPI Counters**: Total Patients, Today's Appointments, Active Ambulances, Emergency Requests, Available Blood Units, and Patient Satisfaction.
-- **Interactive Visualizations**: Recharts-powered 7-day booking trends and department allocation breakdowns.
-- **Audit Trails & Error Logging**: Front-desk escalations, conversation archives, and system error tracing.
+## Technology Stack
 
----
+- Frontend: React 18, TypeScript, Vite, Tailwind CSS, React Router, TanStack Query.
+- Backend: Python 3.11, FastAPI, Pydantic, SQLAlchemy.
+- Database: SQLite for local development; PostgreSQL is configured for Docker Compose.
+- Optional integrations: Gemini, WhatsApp, voice provider, SMTP, Redis, and n8n.
 
-## Tech Stack
+## Project Structure
 
-- **Backend**: Python 3.11, FastAPI, SQLAlchemy ORM, Pydantic v2, PostgreSQL / SQLite In-Memory Engine, Redis, Pytest.
-- **Frontend**: React 18, Vite, TypeScript, Tailwind CSS, TanStack Query, Lucide Icons, Recharts.
-- **Automation & Workflow Engine**: n8n Automation Engine, Docker Compose, Nginx.
-- **AI & Integrations**: Google Gemini 1.5 Flash, Meta WhatsApp Cloud API (Graph API v19.0), Voice Callback Engine.
-
----
-
-## Quick Start Guide
-
-### Option 1: Run with Docker Compose
-```bash
-docker-compose up --build
+```text
+backend/       FastAPI application, services, models, and tests
+frontend/      React application and Vite build
+database/      SQL schema and database notes
+docs/          Architecture, API, and safety documentation
+n8n/           Workflow definitions
 ```
-- **Frontend Dashboard**: `http://localhost` (or `http://localhost:3000`)
-- **Backend API & Swagger Docs**: `http://localhost:8000/docs`
-- **Health Endpoint**: `http://localhost:8000/health`
-- **n8n Automation Console**: `http://localhost:5678`
 
-### Option 2: Local Development
+## Environment Variables
 
-#### 1. Backend Setup
-```bash
+`backend/app/core/config.py` defines the backend settings. Copy `.env.example` to `backend/.env` for local backend configuration. Docker Compose reads a root `.env` file; copy the template there and replace the placeholder values before starting containers. Do not commit either file.
+
+Common settings include `DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGINS`, `PORT`, and optional integration keys such as `GEMINI_API_KEY`. Docker Compose also requires `POSTGRES_PASSWORD`, `JWT_SECRET`, and `N8N_BASIC_AUTH_PASSWORD`. `VITE_API_BASE_URL` defaults to `/api` in the production frontend image; set it to the deployed backend API URL when frontend and backend are hosted separately.
+
+## Local Setup
+
+### Backend
+
+```powershell
 cd backend
-python -m venv venv
-# Windows:
-.\venv\Scripts\activate
-# Linux/macOS:
-# source venv/bin/activate
-
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python -m app.db.seed
-uvicorn app.main:app --reload --port 8000
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-#### 2. Frontend Setup
-```bash
+The API health endpoint is `http://127.0.0.1:8000/health` and API documentation is at `/docs`.
+
+### Frontend
+
+```powershell
 cd frontend
 npm install
-npm run dev
+npm run dev -- --host 127.0.0.1
 ```
 
----
+Vite serves the application at `http://127.0.0.1:5173`. The default frontend API URL is `http://localhost:8000/api`; override it with `VITE_API_BASE_URL` when needed.
 
-## Demo Credentials
+## Testing
 
-| Role | Email | Password | Access Scope |
-|---|---|---|---|
-| **Patient** | `patient@hospital.com` | `Patient@123` | Patient Portal, AI Chat, Appointments, Ambulance, Blood Bank, Facilities, Reports |
-| **Doctor** | `dr.sharma@hospital.com` | `Doctor@123` | Physician Portal, Patient Queue, Consultations |
-| **Admin** | `admin@hospital.com` | `Admin@123` | Analytics, Ambulance Fleet, Blood Inventory, Emergency Triage, Escalations |
-| **Front Desk** | `frontdesk@hospital.com` | `FrontDesk@123` | Emergency Escalations, Appointments Overview |
-
----
-
-## 🧪 Comprehensive Verification & Test Suite
-
-### 1. Pytest Backend Suite (47 Test Suites, 100+ Assertions)
-```bash
+```powershell
 cd backend
-pytest -v
-```
-
-### 2. Live Full-Stack End-to-End Playwright Verification (21 Automated Steps)
-```bash
-python run_live_e2e_verification.py
-```
-
-### 3. Frontend Production Build Validation
-```bash
-cd frontend
+pytest -q
+cd ..\frontend
 npm run build
 ```
+
+`run_live_e2e_verification.py` starts local services and runs the Playwright browser flow; Playwright and its Chromium browser must be installed.
+
+## Deployment
+
+The backend Docker image runs `uvicorn app.main:app`, binds to `0.0.0.0`, and uses `PORT` (default `8000`). It exposes `/health`. The frontend image accepts `VITE_API_BASE_URL` at build time. Keep credentials in deployment secret settings and use a managed database for persistent production data.
+
+### Docker Compose
+
+Set the required values in the root `.env`, then run:
+
+```powershell
+docker compose up --build
+```
+
+### Cloud Run
+
+The backend container is configured for Cloud Run's `PORT` contract. Configure `DATABASE_URL`, a strong `JWT_SECRET`, allowed `CORS_ORIGINS`, and any required integration secrets in Cloud Run. Deploy the frontend separately or configure its build with the backend API URL. Cloud Run deployment has not been executed or verified from this repository workspace.
+
+## Demo Flow
+
+1. Register a synthetic patient or use a seeded demo role from the login screen.
+2. Browse doctors and book an available appointment slot.
+3. Search blood inventory and facilities; submit clearly identified test requests only.
+4. Review the patient and request records in the administrative dashboard.
+5. Ask the AI assistant how to navigate appointment, ambulance, blood, and facility workflows.
+
+## Limitations
+
+- Facility, inventory, ambulance availability, and response-time values may be seeded or simulated; they are not live operational feeds.
+- External AI and messaging integrations require valid provider configuration; deterministic AI responses are available for supported administrative prompts.
+- Cloud deployment, production database provisioning, and third-party integrations require environment-specific credentials and have not been verified here.
 

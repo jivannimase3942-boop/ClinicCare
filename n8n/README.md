@@ -44,7 +44,7 @@ The complete end-to-end automation engine matching the JSON master specification
    docker-compose up -d n8n
    ```
 2. Navigate to `http://localhost:5678` in your browser.
-3. Log in using `admin` / `AdminHospital2026!`.
+3. Log in using the credentials configured for your n8n deployment.
 4. Click **Workflows** -> **Import from File...**
 5. Select `n8n/workflows/hospital-ai-automation-main.json`.
 6. Configure environment variables in `.env` and activate workflow.

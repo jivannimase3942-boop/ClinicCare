@@ -98,7 +98,7 @@ export const AIChatPage: React.FC = () => {
       {
         id: 'welcome',
         role: 'assistant',
-        content: 'Hello! I am your CarePulse Hospital AI Clinical Assistant. You can ask about medicines, check doctor availability, book appointments, check report statuses, or request a voice callback. How can I assist you?',
+        content: 'Hello! I am your ClinicCare Hospital AI Clinical Assistant. You can ask about medicines, check doctor availability, book appointments, check report statuses, or request a voice callback. How can I assist you?',
         timestamp: new Date().toISOString(),
       },
     ])
@@ -108,7 +108,7 @@ export const AIChatPage: React.FC = () => {
     <div className="max-w-4xl mx-auto space-y-3 h-[calc(100vh-7rem)] flex flex-col">
       <div className="flex justify-between items-center pb-2 border-b">
         <h1 className="text-xl font-bold flex items-center gap-2 text-slate-800">
-          <Sparkles className="w-5 h-5 text-sky-600" /> CarePulse AI Assistant
+          <Sparkles className="w-5 h-5 text-sky-600" /> ClinicCare AI Assistant
         </h1>
         <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-xs">
           <RefreshCw className="w-3.5 h-3.5" /> Restart Chat
@@ -141,7 +141,7 @@ export const AIChatPage: React.FC = () => {
           ))}
           {isLoading && (
             <div className="text-xs text-slate-500 flex items-center gap-2 bg-white p-2.5 rounded-xl border border-slate-200 w-fit shadow-sm">
-              <Loader2 className="w-4 h-4 animate-spin text-sky-600" /> CarePulse AI is formulating a response...
+              <Loader2 className="w-4 h-4 animate-spin text-sky-600" /> ClinicCare AI is formulating a response...
             </div>
           )}
           <div ref={endRef} />

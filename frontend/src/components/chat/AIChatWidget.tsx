@@ -95,7 +95,7 @@ export const AIChatWidget: React.FC = () => {
       {
         id: 'welcome',
         role: 'assistant',
-        content: 'Hello! I am your CarePulse Hospital AI Assistant. How can I help you today? You can ask about medicines, find specialists, check open slots, or request a call.',
+        content: 'Hello! I am your ClinicCare Hospital AI Assistant. How can I help you today? You can ask about medicines, find specialists, check open slots, or request a call.',
         timestamp: new Date().toISOString(),
       },
     ])
@@ -107,10 +107,10 @@ export const AIChatWidget: React.FC = () => {
         <button
           onClick={() => setIsOpen(true)}
           className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl bg-sky-600 text-white font-semibold shadow-xl hover:scale-105 transition active:scale-95 cursor-pointer"
-          aria-label="Open CarePulse AI Assistant"
+          aria-label="Open ClinicCare AI Assistant"
         >
           <Sparkles className="w-5 h-5" />
-          <span className="text-sm">CarePulse AI</span>
+          <span className="text-sm">ClinicCare AI</span>
         </button>
       )}
 
@@ -120,7 +120,7 @@ export const AIChatWidget: React.FC = () => {
             <div className="flex items-center gap-2">
               <Bot className="w-5 h-5 text-sky-200" />
               <div>
-                <h4 className="font-bold text-sm leading-none">CarePulse AI Assistant</h4>
+                <h4 className="font-bold text-sm leading-none">ClinicCare AI Assistant</h4>
                 <span className="text-[10px] text-sky-200">Online • Hospital Orchestration</span>
               </div>
             </div>
@@ -157,7 +157,7 @@ export const AIChatWidget: React.FC = () => {
             ))}
             {isLoading && (
               <div className="flex items-center gap-2 text-xs text-slate-500 bg-white p-2.5 rounded-xl border border-slate-200 w-fit shadow-sm">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600" /> CarePulse AI is formulating a response...
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600" /> ClinicCare AI is formulating a response...
               </div>
             )}
             <div ref={endRef} />

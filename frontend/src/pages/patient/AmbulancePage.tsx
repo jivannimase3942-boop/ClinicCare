@@ -210,7 +210,7 @@ export const AmbulancePage: React.FC = () => {
                     <Input
                       value={destination}
                       onChange={(e) => setDestination(e.target.value)}
-                      placeholder="CarePulse Multispeciality Hospital"
+                      placeholder="ClinicCare Multispeciality Hospital"
                     />
                   </div>
                   <div>
