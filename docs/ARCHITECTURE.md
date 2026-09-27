@@ -1,7 +1,7 @@
-# CarePulse Hospital AI Automation — System Architecture
+# ClinicCare — System Architecture
 
 ## Overview
-CarePulse is an enterprise-grade, full-stack Hospital AI Automation and Patient Care Orchestration platform engineered with FastAPI (Python 3.11), SQLAlchemy, PostgreSQL, Redis, React 18, TypeScript, Tailwind CSS, TanStack Query, and an autonomous AI Clinical Assistant service.
+ClinicCare is an enterprise-grade, full-stack Hospital AI Automation and Patient Care Orchestration platform engineered with FastAPI (Python 3.11), SQLAlchemy, PostgreSQL, Redis, React 18, TypeScript, Tailwind CSS, TanStack Query, and an autonomous AI Clinical Assistant service.
 
 ```
 +-----------------------------------------------------------------------------------+
@@ -14,7 +14,7 @@ CarePulse is an enterprise-grade, full-stack Hospital AI Automation and Patient 
                                          | (HTTPS / REST / JSON)
                                          v
 +-----------------------------------------------------------------------------------+
-|                        CarePulse FastAPI Gateway & Security                       |
+|                        ClinicCare FastAPI Gateway & Security                      |
 |  - JWT Bearer Authentication & Strict Role-Based Access Control (RBAC)            |
 |  - IDOR Prevention via Authenticated Patient Context Injection                    |
 |  - Global Exception Interceptor & Automated Error Log Recorder                    |

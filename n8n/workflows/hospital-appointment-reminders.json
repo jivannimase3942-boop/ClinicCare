@@ -1,5 +1,5 @@
 {
-  "name": "CarePulse Hospital Automated Reminder & Escalation Workflow",
+  "name": "ClinicCare Hospital Automated Reminder & Escalation Workflow",
   "nodes": [
     {
       "parameters": {
@@ -27,7 +27,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer AUTOMATED_WORKFLOW_KEY"
+              "value": "={{ 'Bearer ' + $env.AUTOMATED_WORKFLOW_KEY }}"
             }
           ]
         }

@@ -135,3 +135,19 @@ def test_n8n_workflow_http_endpoints_suite(client, db_session, seed_test_data):
     res = client.post("/report-ready-webhook", json={"event": "report_generated"})
     assert res.status_code == 200
     assert res.json()["status"] == "SUCCESS"
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "AUTOMATED_WORKFLOW_KEY",
+        "cliniccare-workflow-secret-key-2026",
+        "carepulse-workflow-secret-key-2026",
+    ],
+)
+def test_legacy_workflow_tokens_are_rejected(client, token):
+    response = client.get(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 401

@@ -1,7 +1,6 @@
-# Hospital AI Automation — n8n Master Workflow Architecture
+# ClinicCare — n8n Workflow Definitions
 
-This directory contains the n8n automated workflow specification for:
-**"Hospital AI Automation — Appointments + WhatsApp Support + Voice Calls + Reports + Feedback"**
+This directory contains n8n workflow definitions for ClinicCare integrations and scheduled tasks.
 
 ## Included Workflows
 
@@ -47,5 +46,5 @@ The complete end-to-end automation engine matching the JSON master specification
 3. Log in using the credentials configured for your n8n deployment.
 4. Click **Workflows** -> **Import from File...**
 5. Select `n8n/workflows/hospital-ai-automation-main.json`.
-6. Configure environment variables in `.env` and activate workflow.
+6. Configure environment variables in `.env`, including `AUTOMATED_WORKFLOW_KEY` for backend requests, then activate the workflow.
 

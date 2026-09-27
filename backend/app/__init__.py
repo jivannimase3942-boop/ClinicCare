@@ -1,1 +1,1 @@
-# Hospital AI Automation Backend
+# ClinicCare Hospital AI Automation Backend

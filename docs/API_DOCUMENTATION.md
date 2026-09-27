@@ -1,4 +1,4 @@
-# CarePulse API Specification & Endpoints
+# ClinicCare API Specification & Endpoints
 
 Base URL: `http://localhost:8000/api`
 

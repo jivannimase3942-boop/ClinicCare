@@ -1,3 +1,4 @@
+import hmac
 from typing import List, Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -23,12 +24,9 @@ def get_current_user(
     token = credentials.credentials
 
     # Support automated internal workflow keys
-    if token in [
-        settings.AUTOMATED_WORKFLOW_KEY,
-        "AUTOMATED_WORKFLOW_KEY",
-        "cliniccare-workflow-secret-key-2026",
-        "carepulse-workflow-secret-key-2026",
-    ]:
+    if settings.AUTOMATED_WORKFLOW_KEY and hmac.compare_digest(
+        token, settings.AUTOMATED_WORKFLOW_KEY
+    ):
         admin_user = db.query(User).filter(User.role.in_(["ADMIN", "FRONT_DESK"]), User.is_active == True).first()
         if not admin_user:
             admin_user = db.query(User).filter(User.is_active == True).first()

@@ -3,7 +3,7 @@ version: '3.8'
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: carepulse_postgres
+    container_name: cliniccare_postgres
     environment:
       POSTGRES_DB: hospital_db
       POSTGRES_USER: hospital_admin
@@ -20,7 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: carepulse_redis
+    container_name: cliniccare_redis
     ports:
       - "6379:6379"
     volumes:
@@ -30,11 +30,13 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: carepulse_backend
+    container_name: cliniccare_backend
     environment:
       DATABASE_URL: postgresql://hospital_admin:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the root .env file}@postgres:5432/hospital_db
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
+      AUTOMATED_WORKFLOW_KEY: ${AUTOMATED_WORKFLOW_KEY:?Set AUTOMATED_WORKFLOW_KEY in the root .env file}
+      WA_VERIFY_TOKEN: ${WA_VERIFY_TOKEN:?Set WA_VERIFY_TOKEN in the root .env file}
       ENVIRONMENT: production
       PORT: 8000
     ports:
@@ -53,7 +55,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
-    container_name: carepulse_frontend
+    container_name: cliniccare_frontend
     ports:
       - "80:80"
       - "3000:80"
@@ -62,11 +64,14 @@ services:
 
   n8n:
     image: n8nio/n8n:latest
-    container_name: carepulse_n8n
+    container_name: cliniccare_n8n
     environment:
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
       - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:?Set N8N_BASIC_AUTH_PASSWORD in the root .env file}
+      - AUTOMATED_WORKFLOW_KEY=${AUTOMATED_WORKFLOW_KEY:?Set AUTOMATED_WORKFLOW_KEY in the root .env file}
+      - WA_VERIFY_TOKEN=${WA_VERIFY_TOKEN:?Set WA_VERIFY_TOKEN in the root .env file}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       - N8N_HOST=localhost
       - N8N_PORT=5678
       - N8N_PROTOCOL=http

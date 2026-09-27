@@ -1,6 +1,7 @@
 import os
+import secrets
 from typing import List, Union, Optional
-from pydantic import AnyHttpUrl, field_validator
+from pydantic import AnyHttpUrl, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,7 +30,7 @@ class Settings(BaseSettings):
         return ["*"]
 
     # Security & JWT
-    JWT_SECRET: str = "super-secret-hospital-jwt-key-change-in-production-min-32-chars-long"
+    JWT_SECRET: str = Field(default_factory=lambda: secrets.token_urlsafe(48))
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 
@@ -47,7 +48,7 @@ class Settings(BaseSettings):
     # WhatsApp Cloud API (Meta)
     WA_PHONE_NUMBER_ID: str = ""
     WA_ACCESS_TOKEN: str = ""
-    WA_VERIFY_TOKEN: str = "hospital_ai_webhook_verify_token"
+    WA_VERIFY_TOKEN: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     WA_API_VERSION: str = "v19.0"
 
     # Voice Calling API (External Provider: ElevenLabs / Retell / Bland AI / Twilio)

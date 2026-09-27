@@ -45,7 +45,14 @@ export const AdminReminders: React.FC = () => {
         </div>
 
         <div className="divide-y divide-slate-800/60 text-xs">
-          {reminders.map((rem) => (
+          {reminders.length === 0 ? (
+            <div className="text-center py-10 text-slate-400">
+              <BellRing className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+              <p className="font-semibold text-slate-300">No scheduled reminders in queue</p>
+              <p className="text-slate-500 text-xs mt-1">Dispatches for upcoming and completed appointments will appear here.</p>
+            </div>
+          ) : (
+            reminders.map((rem) => (
             <div key={rem.id} className="p-4 hover:bg-slate-800/40 space-y-2">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
@@ -74,7 +81,7 @@ export const AdminReminders: React.FC = () => {
                 {rem.message}
               </div>
             </div>
-          ))}
+          )))}
         </div>
       </div>
     </div>

@@ -382,7 +382,7 @@ def seed_database():
             model="Mercedes-Benz Sprinter BLS",
             ambulance_type="Basic Life Support (BLS)",
             status="available",
-            base_station="CarePulse Main Campus",
+            base_station="ClinicCare Main Campus",
             current_location="Main Campus, Emergency Bay 1",
             driver_name="Robert Jenkins",
             driver_phone="+1 (800) 555-0301",

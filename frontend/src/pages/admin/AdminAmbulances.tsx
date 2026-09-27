@@ -100,7 +100,16 @@ export const AdminAmbulances: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
-              {requests.map((r) => (
+              {requests.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-slate-400">
+                    <Truck className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                    <p className="font-semibold text-slate-300">No active ambulance dispatch requests</p>
+                    <p className="text-slate-500 text-xs mt-1">New incoming ambulance requests from patients or hotline will appear here.</p>
+                  </td>
+                </tr>
+              ) : (
+                requests.map((r) => (
                 <tr key={r.id} className="hover:bg-slate-800/40">
                   <td className="p-3">
                     <span className="font-bold text-white block">{r.requester_name}</span>
@@ -145,7 +154,7 @@ export const AdminAmbulances: React.FC = () => {
                     )}
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>

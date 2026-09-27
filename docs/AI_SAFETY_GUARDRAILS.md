@@ -1,4 +1,4 @@
-# CarePulse Medical AI Safety & Clinical Guardrails
+# ClinicCare Medical AI Safety & Clinical Guardrails
 
 ## Core Safety Principles
 

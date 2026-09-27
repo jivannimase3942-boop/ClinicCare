@@ -19,7 +19,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const q=$input.first().json.query||{}; if(q['hub.mode']==='subscribe'&&q['hub.verify_token']==($env.WA_VERIFY_TOKEN||'hospital_ai_webhook_verify_token')){ return [{json:{statusCode:200,body:q['hub.challenge']}}]; } return [{json:{statusCode:403,body:'Token mismatch'}}];"
+        "jsCode": "const q=$input.first().json.query||{}; if(q['hub.mode']==='subscribe'&&q['hub.verify_token']==$env.WA_VERIFY_TOKEN){ return [{json:{statusCode:200,body:q['hub.challenge']}}]; } return [{json:{statusCode:403,body:'Token mismatch'}}];"
       },
       "id": "code-ver",
       "name": "Verify Handshake Token",
