@@ -1,0 +1,112 @@
+{
+  "name": "CarePulse Hospital Automated Reminder & Escalation Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Hourly Check Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/admin/appointments?status=confirmed",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer AUTOMATED_WORKFLOW_KEY"
+            }
+          ]
+        }
+      },
+      "id": "fetch-appointments",
+      "name": "Fetch Confirmed Appointments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "value2": "confirmed"
+            }
+          ]
+        }
+      },
+      "id": "filter-confirmed",
+      "name": "Filter Confirmed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/whatsapp/webhook",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"changes\": [\n        {\n          \"value\": {\n            \"messages\": [\n              {\n                \"from\": \"{{ $json.patient_phone }}\",\n                \"id\": \"wamid.reminder\",\n                \"type\": \"text\",\n                \"text\": { \"body\": \"Reminder: You have an upcoming consultation with {{ $json.doctor_name }} on {{ $json.appointment_date }} at {{ $json.appointment_time }}.\" }\n              }\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}"
+      },
+      "id": "send-whatsapp-reminder",
+      "name": "Send WhatsApp Reminder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [950, 200]
+    }
+  ],
+  "connections": {
+    "Hourly Check Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Confirmed Appointments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Confirmed Appointments": {
+      "main": [
+        [
+          {
+            "node": "Filter Confirmed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Confirmed": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

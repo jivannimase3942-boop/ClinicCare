@@ -1,0 +1,131 @@
+import React, { useState, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { doctorService } from '@/services/doctors'
+import { appointmentService } from '@/services/appointments'
+import { useToast } from '@/context/ToastContext'
+import { Card, CardTitle } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
+import { CheckCircle2 } from 'lucide-react'
+
+export const BookAppointmentPage: React.FC = () => {
+  const [searchParams] = useSearchParams()
+  const initialDoctorId = searchParams.get('doctor_id') || ''
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { showToast } = useToast()
+
+  const [selectedDept, setSelectedDept] = useState('')
+  const [selectedDoctorId, setSelectedDoctorId] = useState(initialDoctorId)
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    return d.toISOString().split('T')[0]
+  })
+  const [selectedTime, setSelectedTime] = useState('')
+  const [reason, setReason] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const { data: departments = [] } = useQuery({
+    queryKey: ['departments'],
+    queryFn: () => doctorService.getDepartments(),
+  })
+
+  const { data: doctors = [] } = useQuery({
+    queryKey: ['doctors', selectedDept],
+    queryFn: () => doctorService.getDoctors({ department_id: selectedDept || undefined }),
+  })
+
+  const { data: slots = [], isLoading: loadingSlots } = useQuery({
+    queryKey: ['doctor-slots', selectedDoctorId, selectedDate],
+    queryFn: () => doctorService.getDoctorSlots(selectedDoctorId, selectedDate),
+    enabled: !!selectedDoctorId && !!selectedDate,
+  })
+
+  useEffect(() => {
+    if (initialDoctorId) {
+      setSelectedDoctorId(initialDoctorId)
+    }
+  }, [initialDoctorId])
+
+  useEffect(() => {
+    if (initialDoctorId && doctors.length > 0 && !selectedDept) {
+      const doc = doctors.find((d) => d.id === initialDoctorId)
+      if (doc) setSelectedDept(doc.department_id)
+    }
+  }, [initialDoctorId, doctors, selectedDept])
+
+  const handleBook = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedDoctorId || !selectedDate || !selectedTime) return
+    setIsSubmitting(true)
+    try {
+      await appointmentService.createAppointment({
+        doctor_id: selectedDoctorId,
+        appointment_date: selectedDate,
+        appointment_time: selectedTime,
+        reason: reason || undefined,
+      })
+      await queryClient.invalidateQueries({ queryKey: ['patient-appointments'] })
+      showToast('Appointment confirmed successfully!', 'success')
+      navigate('/patient/appointments')
+    } catch (err: any) {
+      showToast(err.message || 'Booking failed', 'error')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const availableSlots = slots.filter((s) => !s.is_booked)
+
+  return (
+    <div className="max-w-3xl mx-auto space-y-6">
+      <h1 className="text-2xl font-bold">Book Doctor Appointment</h1>
+      <form onSubmit={handleBook} className="space-y-6">
+        <Card className="space-y-4">
+          <CardTitle>1. Select Doctor</CardTitle>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Select label="Department" value={selectedDept} onChange={(e) => { setSelectedDept(e.target.value); setSelectedDoctorId(''); setSelectedTime(''); }}>
+              <option value="">All Departments</option>
+              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </Select>
+            <Select label="Doctor" value={selectedDoctorId} onChange={(e) => { setSelectedDoctorId(e.target.value); setSelectedTime(''); }} required>
+              <option value="">Select Doctor...</option>
+              {doctors.map((doc) => <option key={doc.id} value={doc.id}>{doc.full_name} ({doc.specialization})</option>)}
+            </Select>
+          </div>
+        </Card>
+
+        {selectedDoctorId && (
+          <Card className="space-y-4">
+            <CardTitle>2. Select Date & Slot</CardTitle>
+            <Input type="date" label="Date" value={selectedDate} min={new Date().toISOString().split('T')[0]} onChange={(e) => { setSelectedDate(e.target.value); setSelectedTime(''); }} required />
+            <div>
+              <p className="text-xs font-semibold mb-2">Available Slots ({selectedDate})</p>
+              {loadingSlots ? <p className="text-xs text-slate-400">Loading...</p> : availableSlots.length === 0 ? <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded">No slots on this date.</p> : (
+                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                  {availableSlots.map((s) => (
+                    <button type="button" key={s.id} onClick={() => setSelectedTime(s.start_time)} className={`py-2 text-xs font-semibold rounded-xl border ${selectedTime === s.start_time ? 'bg-sky-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
+                      {s.start_time}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
+        )}
+
+        <Card className="space-y-4">
+          <CardTitle>3. Reason for Visit (Optional)</CardTitle>
+          <Input placeholder="e.g. Routine checkup, fever" value={reason} onChange={(e) => setReason(e.target.value)} />
+        </Card>
+
+        <Button type="submit" size="lg" className="w-full" disabled={!selectedDoctorId || !selectedDate || !selectedTime || isSubmitting} isLoading={isSubmitting} leftIcon={<CheckCircle2 className="w-5 h-5" />}>
+          Confirm Appointment
+        </Button>
+      </form>
+    </div>
+  )
+}

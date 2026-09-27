@@ -1,0 +1,724 @@
+{
+  "name": "Hospital AI Automation \u2014 Appointments + WhatsApp Support + Voice Calls + Reports + Feedback",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "whatsapp-webhook",
+        "responseMode": "responseNode"
+      },
+      "id": "wh-ver",
+      "name": "WhatsApp Webhook Verification (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        100
+      ],
+      "webhookId": "whatsapp-webhook-verify"
+    },
+    {
+      "parameters": {
+        "jsCode": "const q=$input.first().json.query||{}; if(q['hub.mode']==='subscribe'&&q['hub.verify_token']==($env.WA_VERIFY_TOKEN||'hospital_ai_webhook_verify_token')){ return [{json:{statusCode:200,body:q['hub.challenge']}}]; } return [{json:{statusCode:403,body:'Token mismatch'}}];"
+      },
+      "id": "code-ver",
+      "name": "Verify Handshake Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}"
+        }
+      },
+      "id": "resp-ver",
+      "name": "Respond Handshake Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        500,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-webhook",
+        "responseMode": "responseNode"
+      },
+      "id": "wh-in",
+      "name": "WhatsApp Inbound Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        300
+      ],
+      "webhookId": "whatsapp-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b=$input.first().json.body||$input.first().json; const m=b.entry?.[0]?.changes?.[0]?.value?.messages?.[0]; if(!m) return [{json:{isValid:false}}]; const f=m.from, t=m.text?.body||''; const r=t.trim().match(/^(?:rating\\s*[:=]?\\s*)?([1-5])(?:\\s*(?:\\/5|\\*|stars?))?\\s*[-:,.]?\\s*(.*)$/i); const isFb=['1','2','3','4','5'].includes(t.trim())||Boolean(r); return [{json:{isValid:true,from:f,text:t,isFeedback:isFb,rating:r?parseInt(r[1],10):(isFb?parseInt(t.trim(),10):null),comment:r?r[2]:''}}];"
+      },
+      "id": "code-ext",
+      "name": "Extract Message & Classify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.isFeedback }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-fb",
+      "name": "Is Feedback Rating?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/feedback",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\\n  \\\"rating\\\": {{ $json.rating }},\\n  \\\"comment\\\": \\\"{{ $json.comment || 'WhatsApp Feedback' }}\\\"\\n}"
+      },
+      "id": "req-fb",
+      "name": "Record Feedback in Database",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        700,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v19.0/={{ $env.WA_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ={{ $env.WA_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\\n  \\\"messaging_product\\\": \\\"whatsapp\\\",\\n  \\\"to\\\": \\\"{{ $json.from }}\\\",\\n  \\\"type\\\": \\\"text\\\",\\n  \\\"text\\\": { \\\"body\\\": \\\"Thank you! Your rating of {{ $json.rating }}/5 has been safely recorded.\\\" }\\n}"
+      },
+      "id": "send-fb",
+      "name": "Send Feedback Gratitude WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\\n  \\\"status\\\": \\\"EVENT_RECEIVED\\\"\\n}"
+      },
+      "id": "ack-wh",
+      "name": "Acknowledge WhatsApp Event 200 OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1150,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.text }}",
+        "options": {
+          "systemMessage": "You are the official Patient WhatsApp AI Agent for City Care Multispeciality Hospital. Use hospital tools to check info, slots, book/cancel appointments, check reports, request voice calls, or escalate emergencies."
+        }
+      },
+      "id": "ai-agent",
+      "name": "Patient WhatsApp AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        700,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "name": "get_hospital_doctor_info",
+        "description": "Retrieve hospital overview, doctors, slots, fees.",
+        "method": "GET",
+        "url": "http://backend:8000/api/doctors"
+      },
+      "id": "tool-info",
+      "name": "Tool: Get Hospital and Doctor Info",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "name": "check_doctor_booked_slots",
+        "description": "Check doctor slots.",
+        "method": "GET",
+        "url": "http://backend:8000/api/doctors/{{ $fromAI(\"doctor_id\") }}/slots?slot_date={{ $fromAI(\"date\") }}"
+      },
+      "id": "tool-slots",
+      "name": "Tool: Check Doctor Booked Slots",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        680,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "name": "book_appointment",
+        "description": "Book appointment.",
+        "method": "POST",
+        "url": "http://backend:8000/api/appointments",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\\n  \\\"doctor_id\\\": \\\"{{ $fromAI(\\\"doctor_id\\\") }}\\\",\\n  \\\"appointment_date\\\": \\\"{{ $fromAI(\\\"appointment_date\\\") }}\\\",\\n  \\\"appointment_time\\\": \\\"{{ $fromAI(\\\"appointment_time\\\") }}\\\",\\n  \\\"reason\\\": \\\"{{ $fromAI(\\\"reason\\\") }}\\\"\\n}"
+      },
+      "id": "tool-book",
+      "name": "Tool: Book Appointment",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        760,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "name": "reschedule_appointment",
+        "description": "Reschedule appointment.",
+        "method": "POST",
+        "url": "http://backend:8000/api/appointments/{{ $fromAI(\"appointment_id\") }}/reschedule",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\\n  \\\"new_date\\\": \\\"{{ $fromAI(\\\"new_date\\\") }}\\\",\\n  \\\"new_time\\\": \\\"{{ $fromAI(\\\"new_time\\\") }}\\\",\\n  \\\"reason\\\": \\\"{{ $fromAI(\\\"reason\\\") }}\\\"\\n}"
+      },
+      "id": "tool-resched",
+      "name": "Tool: Reschedule Appointment",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        840,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "name": "cancel_appointment",
+        "description": "Cancel appointment.",
+        "method": "POST",
+        "url": "http://backend:8000/api/appointments/{{ $fromAI(\"appointment_id\") }}/cancel",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\\n  \\\"cancelled_reason\\\": \\\"{{ $fromAI(\\\"reason\\\") }}\\\"\\n}"
+      },
+      "id": "tool-cancel",
+      "name": "Tool: Cancel Appointment",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        920,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "name": "check_my_report_status",
+        "description": "Check reports.",
+        "method": "GET",
+        "url": "http://backend:8000/api/reports"
+      },
+      "id": "tool-rep",
+      "name": "Tool: Check My Report Status",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        1000,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "name": "request_ai_voice_call",
+        "description": "Request voice call.",
+        "method": "POST",
+        "url": "http://backend:8000/api/voice/request",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\\n  \\\"phone\\\": \\\"{{ $fromAI(\\\"phone\\\") }}\\\",\\n  \\\"reason\\\": \\\"{{ $fromAI(\\\"reason\\\") }}\\\"\\n}"
+      },
+      "id": "tool-voice",
+      "name": "Tool: Request AI Voice Call For This Patient",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        1080,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "name": "escalate_to_front_desk",
+        "description": "Escalate to front desk.",
+        "method": "POST",
+        "url": "http://backend:8000/api/escalations",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\\n  \\\"reason\\\": \\\"{{ $fromAI(\\\"reason\\\") }}\\\",\\n  \\\"priority\\\": \\\"{{ $fromAI(\\\"priority\\\") }}\\\",\\n  \\\"notes\\\": \\\"{{ $fromAI(\\\"notes\\\") }}\\\"\\n}"
+      },
+      "id": "tool-esc",
+      "name": "Tool: Escalate To Front Desk (Human Handoff)",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        1160,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v19.0/={{ $env.WA_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ={{ $env.WA_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\\n  \\\"messaging_product\\\": \\\"whatsapp\\\",\\n  \\\"to\\\": \\\"{{ $('Extract Message & Classify').item.json.from }}\\\",\\n  \\\"type\\\": \\\"text\\\",\\n  \\\"text\\\": { \\\"body\\\": \\\"{{ $json.output }}\\\" }\\n}"
+      },
+      "id": "send-ai",
+      "name": "Send WhatsApp AI Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        950,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "sch-rem",
+      "name": "Hourly Appointment Reminders Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        850
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/admin/tasks/scan-reminders"
+      },
+      "id": "exec-rem",
+      "name": "Execute Reminders Scan & Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        350,
+        850
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "sch-fb",
+      "name": "Scheduled Feedback Scanner Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        1050
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/admin/tasks/scan-feedback"
+      },
+      "id": "exec-fb",
+      "name": "Scan Completed Appointments & Send Feedback Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        350,
+        1050
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "report-ready-webhook"
+      },
+      "id": "wh-rep",
+      "name": "Report Ready Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        1250
+      ],
+      "webhookId": "report-ready-webhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/admin/tasks/scan-reports"
+      },
+      "id": "exec-rep",
+      "name": "Notify Ready Diagnostic Reports",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        350,
+        1250
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "err-trig",
+      "name": "Global Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        100,
+        1450
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const err=$input.first().json; return [{json:{alertSubject:`[CRITICAL ALERT] Hospital AI Workflow Failure: ${err.node?.name||'System'}`,alertBody:`Hospital AI Failure\\nNode: ${err.node?.name}\\nError: ${err.error?.message}\\nTime: ${new Date().toISOString()}`,service_name:'n8n-engine',error_level:'CRITICAL',message:err.error?.message||'Failure',endpoint:err.node?.name||'n8n'}}];"
+      },
+      "id": "build-alert",
+      "name": "Build Alert Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        1450
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_SENDER || 'alerts@citycarehospital.com' }}",
+        "toEmail": "={{ $env.ALERT_EMAIL_TO || 'admin@citycarehospital.com' }}",
+        "subject": "={{ $json.alertSubject }}",
+        "text": "={{ $json.alertBody }}"
+      },
+      "id": "send-email",
+      "name": "Send Error Alert Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        500,
+        1450
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/admin/errors",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\\n  \\\"service_name\\\": \\\"{{ $json.service_name }}\\\",\\n  \\\"error_level\\\": \\\"{{ $json.error_level }}\\\",\\n  \\\"message\\\": \\\"{{ $json.message }}\\\",\\n  \\\"endpoint\\\": \\\"{{ $json.endpoint }}\\\"\\n}"
+      },
+      "id": "log-err-db",
+      "name": "Log Error to Database",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        700,
+        1450
+      ]
+    }
+  ],
+  "connections": {
+    "WhatsApp Webhook Verification (GET)": {
+      "main": [
+        [
+          {
+            "node": "Verify Handshake Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Inbound Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Message & Classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Message & Classify": {
+      "main": [
+        [
+          {
+            "node": "Is Feedback Rating?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Feedback Rating?": {
+      "main": [
+        [
+          {
+            "node": "Record Feedback in Database",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Patient WhatsApp AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Feedback in Database": {
+      "main": [
+        [
+          {
+            "node": "Send Feedback Gratitude WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Feedback Gratitude WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge WhatsApp Event 200 OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Get Hospital and Doctor Info": {
+      "ai_tool": [
+        [
+          {
+            "node": "Patient WhatsApp AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Check Doctor Booked Slots": {
+      "ai_tool": [
+        [
+          {
+            "node": "Patient WhatsApp AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Book Appointment": {
+      "ai_tool": [
+        [
+          {
+            "node": "Patient WhatsApp AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Reschedule Appointment": {
+      "ai_tool": [
+        [
+          {
+            "node": "Patient WhatsApp AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Cancel Appointment": {
+      "ai_tool": [
+        [
+          {
+            "node": "Patient WhatsApp AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Check My Report Status": {
+      "ai_tool": [
+        [
+          {
+            "node": "Patient WhatsApp AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Request AI Voice Call For This Patient": {
+      "ai_tool": [
+        [
+          {
+            "node": "Patient WhatsApp AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Escalate To Front Desk (Human Handoff)": {
+      "ai_tool": [
+        [
+          {
+            "node": "Patient WhatsApp AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hourly Appointment Reminders Trigger": {
+      "main": [
+        [
+          {
+            "node": "Execute Reminders Scan & Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scheduled Feedback Scanner Trigger": {
+      "main": [
+        [
+          {
+            "node": "Scan Completed Appointments & Send Feedback Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report Ready Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Notify Ready Diagnostic Reports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Global Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Alert Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Alert Message": {
+      "main": [
+        [
+          {
+            "node": "Send Error Alert Email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Error to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
