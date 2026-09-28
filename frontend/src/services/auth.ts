@@ -20,6 +20,27 @@ export interface RegisterPayload {
   otp?: string
 }
 
+export interface DoctorRequestPayload {
+  email: string
+  password: string
+  full_name: string
+  phone?: string
+  specialization: string
+  qualification: string
+  experience_years: number
+  department_id?: string
+  otp: string
+}
+
+export interface FrontDeskRequestPayload {
+  email: string
+  password: string
+  full_name: string
+  phone?: string
+  shift_preference?: string
+  otp: string
+}
+
 export interface AuthResponseData {
   access_token: string
   token_type: string
@@ -48,8 +69,41 @@ export const authService = {
     return res.data.data
   },
 
+  sendLoginOtp: async (email: string): Promise<{ message: string; email: string; dev_code?: string }> => {
+    const res = await api.post<ApiResponse<{ message: string; email: string; dev_code?: string }>>('/auth/login/send-otp', {
+      email,
+    })
+    return res.data.data
+  },
+
+  verifyLoginOtp: async (email: string, otp: string): Promise<AuthResponseData> => {
+    const res = await api.post<ApiResponse<AuthResponseData>>('/auth/login/verify-otp', {
+      email,
+      otp,
+    })
+    return res.data.data
+  },
+
   register: async (payload: RegisterPayload): Promise<AuthResponseData> => {
     const res = await api.post<ApiResponse<AuthResponseData>>('/auth/register', payload)
+    return res.data.data
+  },
+
+  requestDoctorAccess: async (payload: DoctorRequestPayload): Promise<User> => {
+    const res = await api.post<ApiResponse<User>>('/auth/register/doctor-request', payload)
+    return res.data.data
+  },
+
+  requestFrontDeskAccess: async (payload: FrontDeskRequestPayload): Promise<User> => {
+    const res = await api.post<ApiResponse<User>>('/auth/register/frontdesk-request', payload)
+    return res.data.data
+  },
+
+  authenticateGoogle: async (token: string, role: string = 'PATIENT'): Promise<AuthResponseData> => {
+    const res = await api.post<ApiResponse<AuthResponseData>>('/auth/google', {
+      id_token: token,
+      role,
+    })
     return res.data.data
   },
 

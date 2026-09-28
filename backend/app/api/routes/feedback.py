@@ -58,24 +58,20 @@ def submit_feedback(
 @router.get("/my", response_model=ApiResponse[List[FeedbackResponse]])
 def get_my_feedback(
     patient_id: Optional[str] = Query(None),
-    current_user: Optional[User] = Depends(get_optional_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user and current_user.role == "PATIENT":
+    if current_user.role == "PATIENT":
         if not current_user.patient_profile:
             return ApiResponse(success=True, data=[])
         fbs = feedback_service.get_patient_feedbacks(db, current_user.patient_profile.id)
         return ApiResponse(success=True, data=fbs)
 
-    if current_user and current_user.role in ["ADMIN", "FRONT_DESK"]:
+    if current_user.role in ["ADMIN", "FRONT_DESK"]:
         if patient_id:
             fbs = feedback_service.get_patient_feedbacks(db, patient_id)
         else:
             fbs = feedback_service.get_all_feedbacks(db)
         return ApiResponse(success=True, data=fbs)
 
-    if patient_id:
-        fbs = feedback_service.get_patient_feedbacks(db, patient_id)
-        return ApiResponse(success=True, data=fbs)
-
-    return ApiResponse(success=True, data=feedback_service.get_all_feedbacks(db))
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")

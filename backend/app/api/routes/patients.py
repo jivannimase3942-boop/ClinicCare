@@ -24,9 +24,12 @@ def search_patients(
     current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
-    # Patient role is forbidden from browsing general patient registry
+    # Patient role is strictly forbidden from browsing general patient registry
     if current_user and current_user.role == "PATIENT":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Patients cannot browse patient registry")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Patients cannot browse the hospital patient registry"
+        )
 
     patients = patient_service.search_patients(db, query_str=search, blood_group=blood_group, gender=gender)
     return ApiResponse(success=True, data=patients)
@@ -41,7 +44,10 @@ def get_patient_profile(
     # Patient privacy check: Patient can only view their own profile
     if current_user and current_user.role == "PATIENT":
         if not current_user.patient_profile or current_user.patient_profile.id != id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot view another patient's medical profile")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Cannot view another patient's medical profile"
+            )
 
     pat = patient_service.get_patient_by_id(db, id)
     if not pat:
@@ -78,7 +84,10 @@ def get_patient_visits(
     # Patient privacy check: Patient can only view their own visits
     if current_user and current_user.role == "PATIENT":
         if not current_user.patient_profile or current_user.patient_profile.id != id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot view another patient's visit history")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Cannot view another patient's visit history"
+            )
 
     visits = patient_service.get_patient_visits(db, patient_id=id)
     return ApiResponse(success=True, data=visits)

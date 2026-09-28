@@ -83,3 +83,40 @@ class UserResponse(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str = Field(..., min_length=6)
+
+
+class DoctorAccessRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=6)
+    full_name: str = Field(..., min_length=2)
+    phone: Optional[str] = None
+    specialization: str = Field(..., min_length=2)
+    qualification: str = Field(..., min_length=2)
+    experience_years: int = 0
+    department_id: Optional[str] = None
+    otp: str = Field(..., min_length=4, max_length=10)
+
+
+class FrontDeskAccessRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=6)
+    full_name: str = Field(..., min_length=2)
+    phone: Optional[str] = None
+    shift_preference: Optional[str] = None
+    otp: str = Field(..., min_length=4, max_length=10)
+
+
+class GoogleAuthRequest(BaseModel):
+    id_token: Optional[str] = None
+    credential: Optional[str] = None
+    role: Optional[str] = "PATIENT"
+
+
+class LoginSendOtpRequest(BaseModel):
+    email: EmailStr
+
+
+class LoginVerifyOtpRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(..., min_length=4, max_length=10)
+

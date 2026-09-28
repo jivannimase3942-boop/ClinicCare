@@ -10,11 +10,15 @@ import { PublicLayout } from '@/layouts/PublicLayout'
 import { PatientLayout } from '@/layouts/PatientLayout'
 import { AdminLayout } from '@/layouts/AdminLayout'
 import { DoctorLayout } from '@/layouts/DoctorLayout'
+import { FrontDeskLayout } from '@/layouts/FrontDeskLayout'
 
 // Public & Auth Pages
 import { LandingPage } from '@/pages/LandingPage'
 import { LoginPage } from '@/pages/auth/LoginPage'
-import { RegisterPage } from '@/pages/auth/RegisterPage'
+import { RoleSelectPage } from '@/pages/auth/RoleSelectPage'
+import { PatientRegisterPage } from '@/pages/auth/PatientRegisterPage'
+import { DoctorRegisterPage } from '@/pages/auth/DoctorRegisterPage'
+import { FrontDeskRegisterPage } from '@/pages/auth/FrontDeskRegisterPage'
 
 // Patient Pages
 import { PatientDashboard } from '@/pages/patient/PatientDashboard'
@@ -54,6 +58,9 @@ import { AdminReminders } from '@/pages/admin/AdminReminders'
 import { DoctorDashboard } from '@/pages/doctor/DoctorDashboard'
 import { DoctorAppointments } from '@/pages/doctor/DoctorAppointments'
 
+// Front Desk Pages
+import { FrontDeskDashboard } from '@/pages/frontdesk/FrontDeskDashboard'
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -75,7 +82,10 @@ export const App: React.FC = () => {
               <Route element={<PublicLayout />}>
                 <Route path="/" element={<LandingPage />} />
                 <Route path="/login" element={<LoginPage />} />
-                <Route path="/register" element={<RegisterPage />} />
+                <Route path="/register" element={<RoleSelectPage />} />
+                <Route path="/register/patient" element={<PatientRegisterPage />} />
+                <Route path="/register/doctor" element={<DoctorRegisterPage />} />
+                <Route path="/register/frontdesk" element={<FrontDeskRegisterPage />} />
               </Route>
 
               {/* Patient Routes */}
@@ -118,11 +128,30 @@ export const App: React.FC = () => {
                 <Route path="appointments" element={<DoctorAppointments />} />
               </Route>
 
-              {/* Admin Routes */}
+              {/* Front Desk Routes */}
+              <Route
+                path="/frontdesk"
+                element={
+                  <ProtectedRoute allowedRoles={['FRONT_DESK', 'ADMIN']}>
+                    <FrontDeskLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Navigate to="/frontdesk/dashboard" replace />} />
+                <Route path="dashboard" element={<FrontDeskDashboard />} />
+                <Route path="patients" element={<AdminPatients />} />
+                <Route path="appointments" element={<AdminAppointments />} />
+                <Route path="doctors" element={<AdminDoctors />} />
+                <Route path="emergency" element={<AdminEmergency />} />
+                <Route path="ambulances" element={<AdminAmbulances />} />
+                <Route path="escalations" element={<AdminEscalations />} />
+              </Route>
+
+              {/* Admin Routes - Strictly ADMIN role */}
               <Route
                 path="/admin"
                 element={
-                  <ProtectedRoute allowedRoles={['ADMIN', 'FRONT_DESK']}>
+                  <ProtectedRoute allowedRoles={['ADMIN']}>
                     <AdminLayout />
                   </ProtectedRoute>
                 }
@@ -145,10 +174,6 @@ export const App: React.FC = () => {
                 <Route path="conversations" element={<AdminConversations />} />
                 <Route path="errors" element={<AdminErrors />} />
               </Route>
-
-              {/* Front Desk Redirect */}
-              <Route path="/frontdesk/*" element={<Navigate to="/admin/dashboard" replace />} />
-              <Route path="/frontdesk" element={<Navigate to="/admin/dashboard" replace />} />
 
               {/* Fallback */}
               <Route path="*" element={<Navigate to="/" replace />} />

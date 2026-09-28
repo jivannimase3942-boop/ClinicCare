@@ -1,203 +1,184 @@
 import React from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import {
-  CalendarCheck,
   ShieldCheck,
-  Sparkles,
+  CalendarCheck,
   Stethoscope,
-  HeartPulse,
-  Activity,
-  ArrowRight,
-  Clock,
-  PhoneCall,
-  FileCheck,
-  Award,
-  Users,
-  Truck,
-  Droplet,
   Building2,
-  BellRing,
-  ClipboardCheck,
-  Siren,
-  AlertTriangle,
+  Lock,
+  ArrowRight,
+  UserCheck,
+  FileCheck2,
+  HeartPulse,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
+import { useAuth } from '@/context/AuthContext'
 
 export const LandingPage: React.FC = () => {
   const navigate = useNavigate()
+  const { isAuthenticated, user } = useAuth()
 
-  const modules = [
+  const handlePrimaryCta = () => {
+    if (isAuthenticated && user) {
+      if (user.role === 'ADMIN') navigate('/admin/dashboard')
+      else if (user.role === 'FRONT_DESK') navigate('/frontdesk/dashboard')
+      else if (user.role === 'DOCTOR') navigate('/doctor/dashboard')
+      else navigate('/patient/dashboard')
+    } else {
+      navigate('/login')
+    }
+  }
+
+  const pillars = [
     {
-      icon: CalendarCheck,
-      title: 'Appointment Booking',
-      desc: 'Browse specialists, check stored appointment slots, book, reschedule, or cancel.',
-      link: '/patient/appointments/book',
-      color: 'bg-sky-50 text-sky-600 border-sky-100',
+      icon: UserCheck,
+      title: 'Patient Care & Appointments',
+      description: 'Streamlined online appointment booking, digital visit histories, diagnostic reports, and automated follow-up reminders.',
     },
     {
-      icon: Sparkles,
-      title: 'AI Health Assistant',
-      desc: 'Administrative service guidance with strict clinical safety guardrails.',
-      link: '/patient/chat',
-      color: 'bg-teal-50 text-teal-600 border-teal-100',
-    },
-    {
-      icon: Truck,
-      title: 'Ambulance Coordination',
-      desc: 'Submit ambulance requests and review recorded fleet status; dispatch and location data are simulated.',
-      link: '/patient/ambulance',
-      color: 'bg-rose-50 text-rose-600 border-rose-100',
-    },
-    {
-      icon: Droplet,
-      title: 'Blood Group Search',
-      desc: 'Search stored inventory across 8 blood groups and submit blood requirement requests.',
-      link: '/patient/blood',
-      color: 'bg-pink-50 text-pink-600 border-pink-100',
+      icon: Stethoscope,
+      title: 'Physician Clinical Portal',
+      description: 'Role-isolated consultation schedules, verified patient clinical context, and efficient patient visit documentation.',
     },
     {
       icon: Building2,
-      title: 'Healthcare Facilities',
-      desc: 'Search the stored hospital, clinic, trauma, and diagnostic facility directory.',
-      link: '/patient/facilities',
-      color: 'bg-indigo-50 text-indigo-600 border-indigo-100',
-    },
-    {
-      icon: ClipboardCheck,
-      title: 'Patient History & Visits',
-      desc: 'Comprehensive patient profile, past consultation records, vital stats, and follow-up guidance.',
-      link: '/patient/visits',
-      color: 'bg-emerald-50 text-emerald-600 border-emerald-100',
-    },
-    {
-      icon: FileCheck,
-      title: 'Diagnostic Reports',
-      desc: 'Track pathology, imaging, and cardiology test reports digitally with instant ready notifications.',
-      link: '/patient/reports',
-      color: 'bg-amber-50 text-amber-600 border-amber-100',
-    },
-    {
-      icon: BellRing,
-      title: 'Follow-Up Reminders',
-      desc: 'Scheduled appointment and follow-up alerts with simulated WhatsApp and SMS dispatches.',
-      link: '/patient/reminders',
-      color: 'bg-purple-50 text-purple-600 border-purple-100',
+      title: 'Hospital Operations & Triage',
+      description: 'Centralized front-desk coordination, doctor availability tracking, ambulance logistics, and emergency response.',
     },
   ]
 
-
-  const stats = [
-    { value: '8', label: 'Core Coordination Modules' },
-    { value: 'Stored', label: 'Database-backed records' },
-    { value: 'Demo', label: 'Simulated dispatch status' },
-    { value: 'Optional', label: 'External integrations' },
+  const securityFeatures = [
+    {
+      title: 'End-to-End Encrypted Records',
+      desc: 'All medical profiles and diagnostic findings are isolated with strict cryptographic access boundaries.',
+    },
+    {
+      title: 'Strict Role-Based Isolation',
+      desc: 'Rigorous backend authorization ensures patients, physicians, and staff access only authorized resources.',
+    },
+    {
+      title: 'Verified Email Identity',
+      desc: 'Global single-identity enforcement prevents account duplication and unauthorized privilege escalation.',
+    },
+    {
+      title: 'Audit-Ready Architecture',
+      desc: 'Comprehensive logging, operational monitoring, and HIPAA-aligned clinical security principles.',
+    },
   ]
 
   return (
-    <div className="space-y-16 pb-20">
+    <div className="space-y-20 pb-20">
       {/* Hero Section */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-sky-50/70 via-white to-slate-50 pt-14 pb-16 lg:pt-20 lg:pb-24 border-b border-slate-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto space-y-6">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-100 text-sky-800 text-xs font-bold uppercase tracking-wider">
-              <Sparkles className="w-3.5 h-3.5 text-sky-600" />
-              ClinicCare AI • FIT-FEST 2026 Edition
-            </div>
+      <section className="relative overflow-hidden bg-gradient-to-b from-sky-50/80 via-white to-slate-50 pt-16 pb-20 lg:pt-24 lg:pb-28 border-b border-slate-200/80">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-6">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-100 text-sky-800 text-xs font-semibold tracking-wide">
+            <ShieldCheck className="w-4 h-4 text-sky-600" />
+            Verified Healthcare Management Platform
+          </div>
 
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-slate-900 tracking-tight leading-[1.15]">
-              Clinic Appointment, Patient & Emergency Management
-            </h1>
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-slate-900 tracking-tight leading-[1.15]">
+            Unified Clinical Care & Hospital Orchestration
+          </h1>
 
-            <p className="text-base sm:text-lg text-slate-600 leading-relaxed max-w-2xl mx-auto">
-              Unified, demo-ready healthcare platform engineered for small clinics and multispeciality hospitals — featuring conflict-free scheduling, patient visit history, ambulance coordination, blood inventory, and safe AI assistance.
-            </p>
+          <p className="text-base sm:text-lg text-slate-600 leading-relaxed max-w-2xl mx-auto font-normal">
+            ClinicCare delivers a secure, dependable healthcare operations platform connecting patients,
+            physicians, and administrative teams with conflict-free scheduling and role-isolated data management.
+          </p>
 
-            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-              <Button
-                size="lg"
-                variant="primary"
-                leftIcon={<CalendarCheck className="w-5 h-5" />}
-                onClick={() => navigate('/patient/appointments/book')}
-              >
-                Book Appointment
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="bg-white hover:bg-rose-50 text-rose-600 border-rose-200 font-bold"
-                leftIcon={<Truck className="w-5 h-5 text-rose-600" />}
-                onClick={() => navigate('/patient/ambulance')}
-              >
-                Ambulance Dispatch
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                leftIcon={<Sparkles className="w-5 h-5 text-teal-600" />}
-                onClick={() => navigate('/patient/chat')}
-              >
-                AI Health Assistant
-              </Button>
-            </div>
+          <div className="flex flex-wrap items-center justify-center gap-3.5 pt-4">
+            <Button
+              size="lg"
+              variant="primary"
+              onClick={handlePrimaryCta}
+              className="px-6 py-3 font-semibold shadow-md shadow-sky-600/15"
+            >
+              {isAuthenticated ? 'Open Role Dashboard' : 'Sign In to Portal'}
+            </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={() => navigate('/register')}
+              rightIcon={<ArrowRight className="w-4 h-4" />}
+              className="px-6 py-3 font-semibold bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
+            >
+              Get Started
+            </Button>
+          </div>
 
-            {/* Safety Disclaimer Banner */}
-            <div className="mt-6 p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-center gap-2 max-w-2xl mx-auto">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>
-                <strong>Medical Safety Notice:</strong> AI Assistant provides administrative & scheduling coordination. For medical emergencies dial 911 / 108.
-              </span>
-            </div>
+          <div className="pt-4 flex items-center justify-center gap-6 text-xs text-slate-500 font-medium">
+            <span className="flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-emerald-600" /> Encrypted Session
+            </span>
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-sky-600" /> Multi-Role RBAC
+            </span>
+            <span className="flex items-center gap-1.5">
+              <HeartPulse className="w-3.5 h-3.5 text-rose-600" /> Verified Accounts
+            </span>
           </div>
         </div>
       </section>
 
-      {/* Stats Bar */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {stats.map((st, idx) => (
-            <div key={idx} className="bg-white p-5 rounded-2xl border border-slate-200 text-center shadow-sm">
-              <div className="text-2xl lg:text-3xl font-black text-sky-600 mb-0.5">{st.value}</div>
-              <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{st.label}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* 8 Core Functional Modules Grid */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-2xl mx-auto mb-10 space-y-2">
-          <Badge variant="primary" className="text-xs uppercase font-bold">Integrated Capabilities</Badge>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">8 Core Healthcare Modules</h2>
-          <p className="text-slate-600 text-xs sm:text-sm">Click any module below to explore the interactive workflows.</p>
+      {/* How ClinicCare Works / Platform Pillars */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="text-center max-w-2xl mx-auto mb-12 space-y-2">
+          <span className="text-xs font-bold text-sky-700 uppercase tracking-widest">Platform Overview</span>
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+            Designed for Modern Healthcare Operations
+          </h2>
+          <p className="text-sm text-slate-500">
+            Dedicated interfaces and workflow automation customized for every role in the healthcare facility.
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-          {modules.map((m, i) => {
-            const Icon = m.icon
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {pillars.map((pillar, idx) => {
+            const Icon = pillar.icon
             return (
               <div
-                key={i}
-                onClick={() => navigate(m.link)}
-                className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md hover:border-sky-300 transition cursor-pointer flex flex-col justify-between"
+                key={idx}
+                className="bg-white p-7 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between"
               >
-                <div>
-                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center mb-3 border ${m.color}`}>
-                    <Icon className="w-5 h-5" />
+                <div className="space-y-4">
+                  <div className="w-12 h-12 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center text-sky-700">
+                    <Icon className="w-6 h-6" />
                   </div>
-                  <h3 className="text-base font-bold text-slate-900 mb-1.5">{m.title}</h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">{m.desc}</p>
-                </div>
-                <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-600">
-                  <span>Explore Module</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <h3 className="text-lg font-bold text-slate-900">{pillar.title}</h3>
+                  <p className="text-sm text-slate-600 leading-relaxed">{pillar.description}</p>
                 </div>
               </div>
             )
           })}
         </div>
       </section>
+
+      {/* Security & Data Privacy Section */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="bg-slate-900 rounded-3xl p-8 sm:p-12 text-white border border-slate-800 shadow-xl">
+          <div className="max-w-2xl mb-10 space-y-2">
+            <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Trust & Compliance</span>
+            <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+              Enterprise-Grade Clinical Data Security
+            </h2>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              Patient privacy is our foundational architectural commitment. Sensitive clinical data and consultation
+              records are safeguarded through multi-layered authorization.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {securityFeatures.map((feat, i) => (
+              <div key={i} className="p-5 rounded-2xl bg-slate-800/80 border border-slate-700/60 space-y-1.5">
+                <h4 className="text-base font-bold text-white flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                  {feat.title}
+                </h4>
+                <p className="text-xs text-slate-400 leading-relaxed">{feat.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
     </div>
   )
 }
-

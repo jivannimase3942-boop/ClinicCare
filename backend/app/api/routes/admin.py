@@ -91,6 +91,45 @@ def create_dept(data: DepartmentCreate, db: Session = Depends(get_db)):
     return ApiResponse(success=True, message="Department created", data=DepartmentResponse.model_validate(dept))
 
 
+@router.get("/pending-staff", response_model=ApiResponse[List[Dict[str, Any]]], dependencies=[strict_admin_auth])
+def list_pending_staff(db: Session = Depends(get_db)):
+    pending_users = db.query(User).filter(User.role.in_(["PENDING_DOCTOR", "PENDING_FRONT_DESK"])).all()
+    data = [
+        {
+            "id": u.id,
+            "full_name": u.full_name,
+            "email": u.email,
+            "phone": u.phone,
+            "role": u.role,
+            "is_active": u.is_active,
+            "created_at": u.created_at.isoformat() if u.created_at else None,
+            "specialization": u.doctor_profile.specialization if u.doctor_profile else None,
+            "qualification": u.doctor_profile.qualification if u.doctor_profile else None,
+        }
+        for u in pending_users
+    ]
+    return ApiResponse(success=True, data=data)
+
+
+@router.post("/approve-staff/{user_id}", response_model=ApiResponse[Dict[str, Any]], dependencies=[strict_admin_auth])
+def approve_staff(user_id: str, new_role: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    
+    resolved_role = new_role or ("DOCTOR" if user.role == "PENDING_DOCTOR" else "FRONT_DESK")
+    try:
+        from app.services.auth_service import auth_service
+        approved = auth_service.approve_pending_staff(db, user_id, resolved_role)
+        return ApiResponse(
+            success=True,
+            message=f"Staff account approved. Role set to {approved.role}.",
+            data={"id": approved.id, "email": approved.email, "role": approved.role}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
 @router.get("/appointments", response_model=ApiResponse[List[AppointmentResponse]], dependencies=[admin_auth])
 def list_admin_appointments(
     doctor_id: Optional[str] = None,
@@ -109,11 +148,11 @@ def list_admin_appointments(
 def update_appointment_status(
     id: str,
     data: Optional[AppointmentStatusUpdate] = Body(None),
-    status: Optional[str] = Query(None, description="confirmed, completed, cancelled, no_show"),
+    status_param: Optional[str] = Query(None, alias="status", description="confirmed, completed, cancelled, no_show"),
     notes: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    target_status = (data.status if data and data.status else status)
+    target_status = (data.status if data and data.status else status_param)
     target_notes = (data.notes if data and data.notes is not None else notes)
     if not target_status:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Status is required")

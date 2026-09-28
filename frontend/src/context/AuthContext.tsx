@@ -9,7 +9,10 @@ interface AuthContextType {
   isAuthenticated: boolean
   isLoading: boolean
   login: (payload: LoginPayload) => Promise<User>
+  loginWithOtp: (email: string, otp: string) => Promise<User>
+  loginWithGoogle: (googleToken: string, role?: string) => Promise<User>
   register: (payload: RegisterPayload) => Promise<User>
+  setSession: (accessToken: string, user: User) => void
   logout: () => void
   refreshUser: () => Promise<void>
   hasRole: (roles: UserRole | UserRole[]) => boolean
@@ -24,6 +27,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   )
   const [isLoading, setIsLoading] = useState(true)
   const { showToast } = useToast()
+
+  const setSession = (accessToken: string, newUser: User) => {
+    setToken(accessToken)
+    setUser(newUser)
+    localStorage.setItem('cliniccare_token', accessToken)
+    localStorage.setItem('cliniccare_user', JSON.stringify(newUser))
+  }
 
   const refreshUser = async () => {
     try {
@@ -60,10 +70,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (payload: LoginPayload): Promise<User> => {
     try {
       const data = await authService.login(payload)
-      setToken(data.access_token)
-      setUser(data.user)
-      localStorage.setItem('cliniccare_token', data.access_token)
-      localStorage.setItem('cliniccare_user', JSON.stringify(data.user))
+      setSession(data.access_token, data.user)
       showToast(`Welcome back, ${data.user.full_name}!`, 'success')
       return data.user
     } catch (err: any) {
@@ -72,13 +79,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
+  const loginWithOtp = async (email: string, otp: string): Promise<User> => {
+    try {
+      const data = await authService.verifyLoginOtp(email, otp)
+      setSession(data.access_token, data.user)
+      showToast(`Welcome back, ${data.user.full_name}!`, 'success')
+      return data.user
+    } catch (err: any) {
+      showToast(err.message || 'OTP verification failed', 'error')
+      throw err
+    }
+  }
+
+  const loginWithGoogle = async (googleToken: string, role?: string): Promise<User> => {
+    try {
+      const data = await authService.authenticateGoogle(googleToken, role)
+      setSession(data.access_token, data.user)
+      showToast(`Signed in as ${data.user.full_name}`, 'success')
+      return data.user
+    } catch (err: any) {
+      showToast(err.message || 'Google sign-in failed', 'error')
+      throw err
+    }
+  }
+
   const register = async (payload: RegisterPayload): Promise<User> => {
     try {
       const data = await authService.register(payload)
-      setToken(data.access_token)
-      setUser(data.user)
-      localStorage.setItem('cliniccare_token', data.access_token)
-      localStorage.setItem('cliniccare_user', JSON.stringify(data.user))
+      setSession(data.access_token, data.user)
       showToast('Registration successful! Welcome to ClinicCare.', 'success')
       return data.user
     } catch (err: any) {
@@ -112,7 +140,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: !!user && !!token,
         isLoading,
         login,
+        loginWithOtp,
+        loginWithGoogle,
         register,
+        setSession,
         logout,
         refreshUser,
         hasRole,

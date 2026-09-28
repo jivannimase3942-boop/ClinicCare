@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     VOICE_API_KEY: Optional[str] = None
     VOICE_AGENT_ID: Optional[str] = None
 
+    # Google OAuth (OIDC)
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+
     # Email & Alerts (SMTP / SendGrid / Postmark)
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587

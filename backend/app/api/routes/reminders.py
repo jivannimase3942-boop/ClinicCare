@@ -5,8 +5,8 @@ from app.db.session import get_db
 from app.schemas.common import ApiResponse
 from app.schemas.reminder import FollowUpReminderResponse, FollowUpReminderCreate
 from app.services.reminder_service import reminder_service
-from app.api.dependencies import require_roles, get_optional_patient
-from app.models.user import Patient
+from app.api.dependencies import require_roles, get_optional_user
+from app.models.user import User, Patient
 
 router = APIRouter(prefix="/reminders", tags=["Follow-Up Reminders"])
 
@@ -15,11 +15,15 @@ router = APIRouter(prefix="/reminders", tags=["Follow-Up Reminders"])
 def list_reminders(
     patient_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
-    current_patient: Optional[Patient] = Depends(get_optional_patient),
+    current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
-    target_patient_id = current_patient.id if current_patient else patient_id
-    reminders = reminder_service.get_reminders(db, patient_id=target_patient_id, status=status)
+    if current_user and current_user.role == "PATIENT":
+        target_patient_id = current_user.patient_profile.id if current_user.patient_profile else "__none__"
+        reminders = reminder_service.get_reminders(db, patient_id=target_patient_id, status=status)
+        return ApiResponse(success=True, data=reminders)
+
+    reminders = reminder_service.get_reminders(db, patient_id=patient_id, status=status)
     return ApiResponse(success=True, data=reminders)
 
 

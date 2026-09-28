@@ -93,4 +93,15 @@ export const adminService = {
     const res = await api.get<ApiResponse<ErrorLog[]>>('/admin/errors', { params: { limit } })
     return res.data.data
   },
+
+  getPendingStaff: async (): Promise<any[]> => {
+    const res = await api.get<ApiResponse<any[]>>('/admin/pending-staff')
+    return res.data.data
+  },
+
+  approvePendingStaff: async (userId: string): Promise<any> => {
+    const res = await api.post<ApiResponse<any>>(`/admin/approve-staff/${userId}`)
+    return res.data.data
+  },
 }
+

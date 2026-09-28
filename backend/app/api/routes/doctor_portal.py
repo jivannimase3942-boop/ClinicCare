@@ -33,12 +33,12 @@ def get_my_doctor_appointments(
 def update_doctor_appointment_status(
     id: str,
     data: Optional[AppointmentStatusUpdate] = Body(None),
-    status: Optional[str] = Query(None, description="completed, cancelled, no_show, confirmed"),
+    status_param: Optional[str] = Query(None, alias="status", description="completed, cancelled, no_show, confirmed"),
     notes: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    target_status = (data.status if data and data.status else status)
+    target_status = (data.status if data and data.status else status_param)
     target_notes = (data.notes if data and data.notes is not None else notes)
     if not target_status:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Status is required")

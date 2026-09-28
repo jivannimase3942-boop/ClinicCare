@@ -59,6 +59,9 @@ def get_report(
     # Patient privacy check: Patient can only view their own medical report
     if current_user and current_user.role == "PATIENT":
         if not current_user.patient_profile or report.patient_id != current_user.patient_profile.id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot view another patient's medical report")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Cannot view another patient's medical report"
+            )
 
     return ApiResponse(success=True, data=report)
