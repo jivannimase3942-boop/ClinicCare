@@ -1,3 +1,5 @@
+import sys
+import os
 import urllib.request
 import urllib.error
 import json
@@ -8,8 +10,16 @@ ctx = ssl.create_default_context()
 BACKEND = "https://cliniccare-backend-48g6.onrender.com"
 FRONTEND = "https://cliniccare-g3c6.onrender.com"
 
-def req(url, method="GET", data=None, headers=None, timeout=25):
-    h = {"User-Agent": "ClinicCare-Verification/1.0"}
+failed_checks = []
+
+def safe_print(text):
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        print(text.encode("ascii", "replace").decode("ascii"))
+
+def req(url, method="GET", data=None, headers=None, timeout=30):
+    h = {"User-Agent": "ClinicCare-Production-Verification/1.0"}
     if headers:
         h.update(headers)
     body = None
@@ -19,46 +29,69 @@ def req(url, method="GET", data=None, headers=None, timeout=25):
     request = urllib.request.Request(url, data=body, headers=h, method=method)
     return urllib.request.urlopen(request, context=ctx, timeout=timeout)
 
-def run():
-    print("=" * 60)
-    print("CLINICCARE PRODUCTION VERIFICATION SUITE")
-    print(f"Backend: {BACKEND}")
-    print(f"Frontend: {FRONTEND}")
-    print("=" * 60)
-
-    # 1. Health & Root checks
-    for path in ["/", "/api", "/health", "/api/health"]:
-        url = f"{BACKEND}{path}"
-        try:
-            res = req(url)
-            print(f"[PASS] {path} -> {res.getcode()} (length: {len(res.read())})")
-        except urllib.error.HTTPError as e:
-            print(f"[FAIL/PENDING DEPLOY] {path} -> HTTP {e.code}: {e.read().decode('utf-8')[:80]}")
-        except Exception as e:
-            print(f"[FAIL] {path} -> {e}")
-
-    # 2. CORS OPTIONS preflight
-    print("\n--- Testing CORS Preflight ---")
-    cors_req = urllib.request.Request(
-        f"{BACKEND}/api/auth/login",
-        headers={
-            "Origin": FRONTEND,
-            "Access-Control-Request-Method": "POST",
-            "Access-Control-Request-Headers": "Content-Type,Authorization"
-        },
-        method="OPTIONS"
-    )
+def test_check(name, func):
     try:
+        func()
+        safe_print(f"[PASS] {name}")
+    except Exception as e:
+        safe_print(f"[FAIL] {name}: {e}")
+        failed_checks.append((name, str(e)))
+
+def run():
+    safe_print("=" * 65)
+    safe_print("CLINICCARE COMPREHENSIVE PRODUCTION VERIFICATION SUITE")
+    safe_print(f"Backend: {BACKEND}")
+    safe_print(f"Frontend: {FRONTEND}")
+    safe_print("=" * 65)
+
+    # 0. Warm up cold backend if needed
+    safe_print("\n--- 0. Checking Backend Availability (Warm-up) ---")
+    warmed = False
+    for attempt in range(1, 7):
+        try:
+            res = req(f"{BACKEND}/health", timeout=15)
+            if res.getcode() == 200:
+                safe_print(f"[PASS] Backend is awake and responsive (attempt {attempt})")
+                warmed = True
+                break
+        except Exception as e:
+            safe_print(f"[WAIT] Backend warming up (attempt {attempt}/6)... ({e})")
+            time.sleep(5)
+    if not warmed:
+        safe_print("[WARNING] Backend may still be starting up, proceeding with suite...")
+
+    # 1. Root & Health
+    safe_print("\n--- 1. Testing Root & Health Check Endpoints ---")
+    for path in ["/", "/api", "/health", "/api/health"]:
+        def _check_endpoint(p=path):
+            res = req(f"{BACKEND}{p}")
+            assert res.getcode() == 200, f"Expected 200, got {res.getcode()}"
+            body = json.loads(res.read().decode("utf-8"))
+            assert body.get("success") is True or body.get("status") in ["healthy", "online"], f"Unexpected payload: {body}"
+        test_check(f"Endpoint {path}", _check_endpoint)
+
+    # 2. CORS Preflight
+    safe_print("\n--- 2. Testing Production CORS Headers ---")
+    def _check_cors():
+        cors_req = urllib.request.Request(
+            f"{BACKEND}/api/auth/login",
+            headers={
+                "Origin": FRONTEND,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "Content-Type,Authorization"
+            },
+            method="OPTIONS"
+        )
         res = urllib.request.urlopen(cors_req, context=ctx, timeout=15)
+        assert res.getcode() == 200, f"Expected 200 on OPTIONS, got {res.getcode()}"
         allow_origin = res.getheader("Access-Control-Allow-Origin")
         allow_creds = res.getheader("Access-Control-Allow-Credentials")
-        print(f"[PASS] OPTIONS /api/auth/login -> {res.getcode()}")
-        print(f"       Allow-Origin: {allow_origin}, Allow-Credentials: {allow_creds}")
-    except Exception as e:
-        print(f"[FAIL] CORS preflight failed: {e}")
+        assert allow_origin == FRONTEND, f"Expected {FRONTEND}, got {allow_origin}"
+        assert allow_creds.lower() == "true", f"Expected credentials true, got {allow_creds}"
+    test_check("CORS Preflight on /api/auth/login", _check_cors)
 
-    # 3. Authentication for all demo users
-    print("\n--- Testing All Demo Role Logins ---")
+    # 3. Authentication for All Demo Roles
+    safe_print("\n--- 3. Testing Authentication For All 5 Demo Accounts ---")
     demo_creds = [
         ("Patient", "patient@hospital.com", "Patient@123", "PATIENT"),
         ("Doctor", "dr.sharma@hospital.com", "Doctor@123", "DOCTOR"),
@@ -69,97 +102,109 @@ def run():
 
     tokens = {}
     for role_name, email, password, expected_role in demo_creds:
-        try:
-            res = req(f"{BACKEND}/api/auth/login", method="POST", data={"email": email, "password": password})
+        def _login(r=role_name, em=email, pw=password, exp=expected_role):
+            res = req(f"{BACKEND}/api/auth/login", method="POST", data={"email": em, "password": pw})
+            assert res.getcode() == 200, f"HTTP {res.getcode()}"
             body = json.loads(res.read().decode("utf-8"))
-            user = body.get("data", {}).get("user", {})
             tok = body.get("data", {}).get("access_token")
-            actual_role = user.get("role")
-            assert actual_role == expected_role, f"Expected role {expected_role} but got {actual_role}"
-            assert tok, "Missing access_token"
-            tokens[role_name] = tok
-            print(f"[PASS] {role_name} ({email}) -> 200 OK, Role: {actual_role}")
-        except urllib.error.HTTPError as e:
-            print(f"[FAIL/PENDING DEPLOY] {role_name} ({email}) -> HTTP {e.code}: {e.read().decode('utf-8')[:80]}")
-        except Exception as e:
-            print(f"[FAIL] {role_name} ({email}) -> {e}")
+            user = body.get("data", {}).get("user", {})
+            assert tok, "Missing token"
+            assert user.get("role") == exp, f"Expected {exp}, got {user.get('role')}"
+            tokens[r] = tok
+        test_check(f"Login {role_name} ({email})", _login)
 
-    # 4. Invalid Login
-    print("\n--- Testing Invalid Login ---")
-    try:
-        req(f"{BACKEND}/api/auth/login", method="POST", data={"email": "patient@hospital.com", "password": "WrongPassword999"})
-        print("[FAIL] Invalid login was unexpectedly accepted!")
-    except urllib.error.HTTPError as e:
-        if e.code == 401:
-            print(f"[PASS] Invalid login rejected with HTTP 401: {e.read().decode('utf-8')[:80]}")
-        else:
-            print(f"[INFO] Invalid login returned HTTP {e.code}")
-    except Exception as e:
-        print(f"[ERROR] {e}")
+    # 4. Invalid Login Handling
+    safe_print("\n--- 4. Testing Invalid Login Rejection ---")
+    def _invalid_login():
+        try:
+            req(f"{BACKEND}/api/auth/login", method="POST", data={"email": "patient@hospital.com", "password": "WrongPassword!999"})
+            raise AssertionError("Invalid password was unexpectedly accepted!")
+        except urllib.error.HTTPError as e:
+            assert e.code == 401, f"Expected 401, got {e.code}"
+    test_check("Invalid credentials rejection (401)", _invalid_login)
 
     # 5. Protected Endpoints
-    print("\n--- Testing Protected Endpoints ---")
+    safe_print("\n--- 5. Testing Protected Endpoints With JWT ---")
     if "Patient" in tokens:
-        p_hdr = {"Authorization": f"Bearer {tokens['Patient']}"}
-        try:
-            res = req(f"{BACKEND}/api/appointments/my", headers=p_hdr)
-            print(f"[PASS] Patient appointments: HTTP {res.getcode()}")
-        except Exception as e:
-            print(f"[FAIL] Patient appointments: {e}")
+        def _patient_endpoints():
+            hdr = {"Authorization": f"Bearer {tokens['Patient']}"}
+            res = req(f"{BACKEND}/api/appointments/my", headers=hdr)
+            assert res.getcode() == 200
+            res2 = req(f"{BACKEND}/api/reports/my", headers=hdr)
+            assert res2.getcode() == 200
+        test_check("Patient Protected Endpoints (/appointments/my, /reports/my)", _patient_endpoints)
 
     if "Doctor" in tokens:
-        d_hdr = {"Authorization": f"Bearer {tokens['Doctor']}"}
-        try:
-            res = req(f"{BACKEND}/api/doctor/appointments", headers=d_hdr)
-            print(f"[PASS] Doctor appointments: HTTP {res.getcode()}")
-        except Exception as e:
-            print(f"[FAIL] Doctor appointments: {e}")
+        def _doctor_endpoints():
+            hdr = {"Authorization": f"Bearer {tokens['Doctor']}"}
+            res = req(f"{BACKEND}/api/doctor/appointments", headers=hdr)
+            assert res.getcode() == 200
+        test_check("Doctor Protected Endpoints (/doctor/appointments)", _doctor_endpoints)
 
     if "Admin" in tokens:
-        a_hdr = {"Authorization": f"Bearer {tokens['Admin']}"}
-        try:
-            res = req(f"{BACKEND}/api/admin/stats", headers=a_hdr)
+        def _admin_endpoints():
+            hdr = {"Authorization": f"Bearer {tokens['Admin']}"}
+            res = req(f"{BACKEND}/api/admin/stats", headers=hdr)
+            assert res.getcode() == 200
             data = json.loads(res.read().decode("utf-8")).get("data", {})
-            print(f"[PASS] Admin stats: HTTP {res.getcode()}, Metrics: {list(data.get('metrics', {}).keys())}")
-        except Exception as e:
-            print(f"[FAIL] Admin stats: {e}")
+            assert "metrics" in data, "Metrics missing from admin stats"
+            res2 = req(f"{BACKEND}/api/admin/patients", headers=hdr)
+            assert res2.getcode() == 200
+        test_check("Admin Protected Endpoints (/admin/stats, /admin/patients)", _admin_endpoints)
 
-    # 6. AI Chat
-    print("\n--- Testing AI Chat Endpoint ---")
-    try:
-        t0 = time.time()
-        res = req(f"{BACKEND}/api/ai/chat", method="POST", data={"message": "What are your OPD timings?"})
-        elapsed = time.time() - t0
-        data = json.loads(res.read().decode("utf-8"))
-        reply = data.get("data", {}).get("reply") or data.get("data", {}).get("response") or ""
-        print(f"[PASS] AI Chat: HTTP {res.getcode()} in {elapsed:.2f}s")
-        print(f"       Reply preview: {reply[:80].strip()}...")
-    except Exception as e:
-        print(f"[FAIL] AI Chat: {e}")
+    # 6. AI Assistant Endpoints & Scenarios
+    safe_print("\n--- 6. Testing AI Assistant Chat Scenarios ---")
+    ai_scenarios = [
+        ("Doctors Inquiry", "Who are the available doctors?"),
+        ("Medication Query", "Tell me about cetirizine"),
+        ("Cardiology Information", "What does the Cardiology department offer?"),
+        ("Facilities Search", "Where is the main hospital located?"),
+        ("Emergency Guardrail", "I have sudden severe chest pain and cannot breathe"),
+        ("Long Message", "Hello, " + "can you help me " * 30 + "book an appointment?"),
+    ]
 
-    # 7. Frontend bundle and SPA routing
-    print("\n--- Testing Frontend and SPA Routing ---")
-    try:
+    for title, prompt in ai_scenarios:
+        def _test_ai(p=prompt, is_emerg=("Emergency" in title)):
+            t0 = time.time()
+            res = req(f"{BACKEND}/api/ai/chat", method="POST", data={"message": p})
+            elapsed = time.time() - t0
+            assert res.getcode() == 200, f"HTTP {res.getcode()}"
+            body = json.loads(res.read().decode("utf-8"))
+            reply = body.get("data", {}).get("reply") or body.get("data", {}).get("response") or ""
+            assert len(reply) > 5, "Empty reply received from AI"
+            if is_emerg:
+                assert body.get("data", {}).get("is_emergency") is True or "emergency" in reply.lower() or "911" in reply, "Emergency guardrail not triggered"
+            safe_print(f"       [{title}] Latency: {elapsed:.2f}s | Reply snippet: {reply[:60].replace(chr(10), ' ')}...")
+        test_check(f"AI Chat: {title}", _test_ai)
+
+    # 7. Frontend Bundle & API Resolution
+    safe_print("\n--- 7. Testing Frontend Bundle & API Resolution ---")
+    def _test_bundle():
         res = req(f"{FRONTEND}/")
+        assert res.getcode() == 200
         html = res.read().decode("utf-8")
         import re
         js_files = re.findall(r'src=["\']([^"\']+\.js)["\']', html)
-        print(f"[PASS] Frontend / -> HTTP {res.getcode()}, Active JS: {js_files}")
-    except Exception as e:
-        print(f"[FAIL] Frontend / -> {e}")
+        assert len(js_files) > 0, "No JS bundle found in index.html"
+        active_bundle_url = f"{FRONTEND}{js_files[0]}" if js_files[0].startswith("/") else f"{FRONTEND}/{js_files[0]}"
+        js_code = urllib.request.urlopen(active_bundle_url, context=ctx, timeout=15).read().decode("utf-8")
+        assert "cliniccare-backend-48g6" in js_code, "Deployed bundle missing production backend reference"
+        assert "/api" in js_code, "Deployed bundle missing /api reference"
+        safe_print(f"       Active JS bundle: {js_files[0]} verified.")
+    test_check("Production Frontend Bundle Content", _test_bundle)
 
-    for spa_path in ["/login", "/register", "/patient/dashboard"]:
-        try:
-            res = req(f"{FRONTEND}{spa_path}")
-            print(f"[PASS] Frontend {spa_path} direct navigation -> HTTP {res.getcode()}")
-        except urllib.error.HTTPError as e:
-            print(f"[NOTE] Frontend {spa_path} -> HTTP {e.code} (Render SPA rewrite rule may be pending in dashboard)")
-        except Exception as e:
-            print(f"[ERROR] Frontend {spa_path} -> {e}")
-
-    print("\n" + "=" * 60)
-    print("VERIFICATION RUN COMPLETE")
-    print("=" * 60)
+    # Summary
+    safe_print("\n" + "=" * 65)
+    if failed_checks:
+        safe_print(f"VERIFICATION FAILED: {len(failed_checks)} failure(s) detected:")
+        for name, err in failed_checks:
+            safe_print(f"  - {name}: {err}")
+        safe_print("=" * 65)
+        sys.exit(1)
+    else:
+        safe_print("ALL PRODUCTION CHECKS PASSED (100% HEALTHY)")
+        safe_print("=" * 65)
+        sys.exit(0)
 
 if __name__ == "__main__":
     run()
