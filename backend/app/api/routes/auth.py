@@ -2,13 +2,43 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.schemas.common import ApiResponse
-from app.schemas.auth import UserRegister, UserLogin, TokenResponse, UserResponse, PasswordChangeRequest
+from app.schemas.auth import (
+    UserRegister,
+    UserLogin,
+    TokenResponse,
+    UserResponse,
+    PasswordChangeRequest,
+    SendOtpRequest,
+    VerifyOtpRequest,
+)
 from app.services.auth_service import auth_service
 from app.core.security import verify_password, get_password_hash
 from app.api.dependencies import get_current_user
 from app.models.user import User
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+@router.post("/register/send-otp", response_model=ApiResponse[dict])
+def send_registration_otp(payload: SendOtpRequest, db: Session = Depends(get_db)):
+    try:
+        res = auth_service.send_registration_otp(db, email=payload.email, full_name=payload.full_name)
+        return ApiResponse(success=True, message=res["message"], data=res)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to send verification code: {str(e)}")
+
+
+@router.post("/register/verify-otp", response_model=ApiResponse[dict])
+def verify_registration_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
+    try:
+        auth_service.verify_registration_otp(db, email=payload.email, otp=payload.otp)
+        return ApiResponse(success=True, message="Email successfully verified with OTP", data={"email": payload.email, "verified": True})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Verification failed: {str(e)}")
 
 
 @router.post("/register", response_model=ApiResponse[TokenResponse], status_code=status.HTTP_201_CREATED)

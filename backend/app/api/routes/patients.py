@@ -10,7 +10,7 @@ from app.schemas.patient import (
     VisitHistoryCreate,
 )
 from app.services.patient_service import patient_service
-from app.api.dependencies import require_roles, get_optional_patient, get_current_user
+from app.api.dependencies import require_roles, get_optional_user, get_current_user
 from app.models.user import User, Patient
 
 router = APIRouter(prefix="/patients", tags=["Patient Records & History"])
@@ -21,14 +21,28 @@ def search_patients(
     search: Optional[str] = Query(None, description="Search query by name, ID, phone, email"),
     blood_group: Optional[str] = Query(None, description="Filter by blood group"),
     gender: Optional[str] = Query(None, description="Filter by gender"),
+    current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
+    # Patient role is forbidden from browsing general patient registry
+    if current_user and current_user.role == "PATIENT":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Patients cannot browse patient registry")
+
     patients = patient_service.search_patients(db, query_str=search, blood_group=blood_group, gender=gender)
     return ApiResponse(success=True, data=patients)
 
 
 @router.get("/{id}", response_model=ApiResponse[PatientProfileResponse])
-def get_patient_profile(id: str, db: Session = Depends(get_db)):
+def get_patient_profile(
+    id: str,
+    current_user: Optional[User] = Depends(get_optional_user),
+    db: Session = Depends(get_db)
+):
+    # Patient privacy check: Patient can only view their own profile
+    if current_user and current_user.role == "PATIENT":
+        if not current_user.patient_profile or current_user.patient_profile.id != id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot view another patient's medical profile")
+
     pat = patient_service.get_patient_by_id(db, id)
     if not pat:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient profile not found")
@@ -39,14 +53,16 @@ def get_patient_profile(id: str, db: Session = Depends(get_db)):
 def update_patient_profile(
     id: str,
     data: PatientProfileUpdate,
-    current_patient: Optional[Patient] = Depends(get_optional_patient),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
     try:
-        # Authorization check: either admin/staff or own profile
-        if current_patient and current_patient.id != id and current_user and current_user.role not in ["ADMIN", "FRONT_DESK", "DOCTOR"]:
+        if current_user and current_user.role == "PATIENT":
+            if not current_user.patient_profile or current_user.patient_profile.id != id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot edit another patient's profile")
+        elif current_user and current_user.role not in ["ADMIN", "FRONT_DESK", "DOCTOR"]:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
         updated = patient_service.update_patient_profile(db, id, data)
         return ApiResponse(success=True, message="Profile updated successfully", data=updated)
     except ValueError as e:
@@ -54,7 +70,16 @@ def update_patient_profile(
 
 
 @router.get("/{id}/visits", response_model=ApiResponse[List[VisitHistoryResponse]])
-def get_patient_visits(id: str, db: Session = Depends(get_db)):
+def get_patient_visits(
+    id: str,
+    current_user: Optional[User] = Depends(get_optional_user),
+    db: Session = Depends(get_db)
+):
+    # Patient privacy check: Patient can only view their own visits
+    if current_user and current_user.role == "PATIENT":
+        if not current_user.patient_profile or current_user.patient_profile.id != id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot view another patient's visit history")
+
     visits = patient_service.get_patient_visits(db, patient_id=id)
     return ApiResponse(success=True, data=visits)
 

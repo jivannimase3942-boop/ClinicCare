@@ -76,8 +76,7 @@ class Settings(BaseSettings):
     N8N_HOST: str = "localhost"
     N8N_PORT: int = 5678
     N8N_BASIC_AUTH_USER: str = "admin"
-    N8N_BASIC_AUTH_PASSWORD: str = ""
-    AUTOMATED_WORKFLOW_KEY: str = ""
+    AUTOMATED_WORKFLOW_KEY: str = Field(default_factory=lambda: "cliniccare-internal-workflow-key-v1")
 
     model_config = SettingsConfigDict(
         env_file=os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env"),

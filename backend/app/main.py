@@ -90,6 +90,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         content={
             "success": False,
             "message": exc.detail if isinstance(exc.detail, str) else "Request error",
+            "detail": exc.detail if isinstance(exc.detail, str) else str(exc.detail),
             "error_code": f"HTTP_{exc.status_code}",
             "details": exc.detail if not isinstance(exc.detail, str) else None,
         },

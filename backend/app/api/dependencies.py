@@ -27,7 +27,9 @@ def get_current_user(
     if settings.AUTOMATED_WORKFLOW_KEY and hmac.compare_digest(
         token, settings.AUTOMATED_WORKFLOW_KEY
     ):
-        admin_user = db.query(User).filter(User.role.in_(["ADMIN", "FRONT_DESK"]), User.is_active == True).first()
+        admin_user = db.query(User).filter(User.role == "ADMIN", User.is_active == True).first()
+        if not admin_user:
+            admin_user = db.query(User).filter(User.role == "FRONT_DESK", User.is_active == True).first()
         if not admin_user:
             admin_user = db.query(User).filter(User.is_active == True).first()
         if admin_user:

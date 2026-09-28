@@ -43,6 +43,14 @@ def update_doctor_appointment_status(
     if not target_status:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Status is required")
 
+    existing_app = appointment_service.get_appointment_by_id(db, id)
+    if not existing_app:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found")
+
+    if current_user.role == "DOCTOR":
+        if not current_user.doctor_profile or existing_app.doctor_id != current_user.doctor_profile.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot modify another doctor's appointment")
+
     try:
         app = appointment_service.update_appointment_status(db, id, target_status, target_notes)
         return ApiResponse(success=True, message="Appointment status updated", data=app)

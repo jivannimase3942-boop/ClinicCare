@@ -123,6 +123,23 @@ def run():
             assert e.code == 401, f"Expected 401, got {e.code}"
     test_check("Invalid credentials rejection (401)", _invalid_login)
 
+    # 4b. Registration OTP Flow
+    safe_print("\n--- 4b. Testing Email OTP Registration Flow ---")
+    def _test_otp_flow():
+        t_email = f"test_verify_{int(time.time())}@hospital.com"
+        res = req(f"{BACKEND}/api/auth/register/send-otp", method="POST", data={"email": t_email, "full_name": "OTP Test User"})
+        assert res.getcode() == 200, f"Expected 200 on send-otp, got {res.getcode()}"
+        body = json.loads(res.read().decode("utf-8"))
+        assert body.get("success") is True, f"Failed send-otp payload: {body}"
+
+        # Test invalid OTP rejection
+        try:
+            req(f"{BACKEND}/api/auth/register/verify-otp", method="POST", data={"email": t_email, "otp": "000000"})
+            raise AssertionError("Invalid OTP unexpectedly accepted!")
+        except urllib.error.HTTPError as e:
+            assert e.code == 400, f"Expected 400 on invalid OTP, got {e.code}"
+    test_check("Email OTP registration endpoint & invalid OTP rejection", _test_otp_flow)
+
     # 5. Protected Endpoints
     safe_print("\n--- 5. Testing Protected Endpoints With JWT ---")
     if "Patient" in tokens:
@@ -150,7 +167,45 @@ def run():
             assert "metrics" in data, "Metrics missing from admin stats"
             res2 = req(f"{BACKEND}/api/admin/patients", headers=hdr)
             assert res2.getcode() == 200
-        test_check("Admin Protected Endpoints (/admin/stats, /admin/patients)", _admin_endpoints)
+            res3 = req(f"{BACKEND}/api/admin/errors", headers=hdr)
+            assert res3.getcode() == 200
+        test_check("Admin Protected Endpoints (/admin/stats, /admin/patients, /admin/errors)", _admin_endpoints)
+
+    # 5b. Role Isolation & Privacy
+    safe_print("\n--- 5b. Testing Strict Role-Based Access Control (RBAC) & Privacy ---")
+    if "Patient" in tokens:
+        def _patient_rbac_blocks():
+            hdr = {"Authorization": f"Bearer {tokens['Patient']}"}
+            # Patient cannot access Admin stats
+            try:
+                req(f"{BACKEND}/api/admin/stats", headers=hdr)
+                raise AssertionError("Patient unexpectedly accessed /admin/stats")
+            except urllib.error.HTTPError as e:
+                assert e.code == 403, f"Expected 403, got {e.code}"
+            # Patient cannot access Doctor appointments
+            try:
+                req(f"{BACKEND}/api/doctor/appointments", headers=hdr)
+                raise AssertionError("Patient unexpectedly accessed /doctor/appointments")
+            except urllib.error.HTTPError as e:
+                assert e.code == 403, f"Expected 403, got {e.code}"
+            # Patient cannot browse patient directory
+            try:
+                req(f"{BACKEND}/api/patients", headers=hdr)
+                raise AssertionError("Patient unexpectedly accessed /patients")
+            except urllib.error.HTTPError as e:
+                assert e.code == 403, f"Expected 403, got {e.code}"
+        test_check("Patient Role Isolation (Cannot access /admin/stats, /doctor/appointments, /patients)", _patient_rbac_blocks)
+
+    if "Front Desk" in tokens:
+        def _frontdesk_rbac_blocks():
+            hdr = {"Authorization": f"Bearer {tokens['Front Desk']}"}
+            # Front desk cannot access admin system errors
+            try:
+                req(f"{BACKEND}/api/admin/errors", headers=hdr)
+                raise AssertionError("Front desk unexpectedly accessed /admin/errors")
+            except urllib.error.HTTPError as e:
+                assert e.code == 403, f"Expected 403, got {e.code}"
+        test_check("Front Desk Role Isolation (Cannot access /admin/errors)", _frontdesk_rbac_blocks)
 
     # 6. AI Assistant Endpoints & Scenarios
     safe_print("\n--- 6. Testing AI Assistant Chat Scenarios ---")

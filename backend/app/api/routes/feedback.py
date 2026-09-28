@@ -5,7 +5,7 @@ from app.db.session import get_db
 from app.schemas.common import ApiResponse
 from app.schemas.feedback import FeedbackCreate, FeedbackResponse
 from app.services.feedback_service import feedback_service
-from app.api.dependencies import get_current_patient, get_optional_patient
+from app.api.dependencies import get_current_user, get_optional_user
 from app.models.user import Patient, User
 from app.models.appointment import Appointment
 
@@ -15,25 +15,29 @@ router = APIRouter(prefix="/feedback", tags=["Feedback"])
 @router.post("", response_model=ApiResponse[FeedbackResponse], status_code=status.HTTP_201_CREATED)
 def submit_feedback(
     data: FeedbackCreate,
-    current_patient: Optional[Patient] = Depends(get_optional_patient),
+    current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
     try:
         target_patient_id = None
-        if current_patient:
-            target_patient_id = current_patient.id
+        if current_user and current_user.role == "PATIENT":
+            if not current_user.patient_profile:
+                pat = Patient(user_id=current_user.id)
+                db.add(pat)
+                db.commit()
+                db.refresh(pat)
+                target_patient_id = pat.id
+            else:
+                target_patient_id = current_user.patient_profile.id
         elif data.patient_id:
             target_patient_id = data.patient_id
         elif data.appointment_id:
             app = db.query(Appointment).filter(Appointment.id == data.appointment_id).first()
             if app:
                 target_patient_id = app.patient_id
-        elif data.phone:
-            user = db.query(User).filter(User.phone == data.phone).first()
-            if user and user.patient_profile:
-                target_patient_id = user.patient_profile.id
-
-        if not target_patient_id:
+        elif current_user and current_user.patient_profile:
+            target_patient_id = current_user.patient_profile.id
+        else:
             first_patient = db.query(Patient).first()
             if first_patient:
                 target_patient_id = first_patient.id
@@ -54,13 +58,24 @@ def submit_feedback(
 @router.get("/my", response_model=ApiResponse[List[FeedbackResponse]])
 def get_my_feedback(
     patient_id: Optional[str] = Query(None),
-    current_patient: Optional[Patient] = Depends(get_optional_patient),
+    current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
-    if current_patient:
-        fbs = feedback_service.get_patient_feedbacks(db, current_patient.id)
-    elif patient_id:
+    if current_user and current_user.role == "PATIENT":
+        if not current_user.patient_profile:
+            return ApiResponse(success=True, data=[])
+        fbs = feedback_service.get_patient_feedbacks(db, current_user.patient_profile.id)
+        return ApiResponse(success=True, data=fbs)
+
+    if current_user and current_user.role in ["ADMIN", "FRONT_DESK"]:
+        if patient_id:
+            fbs = feedback_service.get_patient_feedbacks(db, patient_id)
+        else:
+            fbs = feedback_service.get_all_feedbacks(db)
+        return ApiResponse(success=True, data=fbs)
+
+    if patient_id:
         fbs = feedback_service.get_patient_feedbacks(db, patient_id)
-    else:
-        fbs = feedback_service.get_all_feedbacks(db)
-    return ApiResponse(success=True, data=fbs)
+        return ApiResponse(success=True, data=fbs)
+
+    return ApiResponse(success=True, data=feedback_service.get_all_feedbacks(db))

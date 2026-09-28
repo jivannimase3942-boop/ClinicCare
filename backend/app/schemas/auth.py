@@ -3,6 +3,16 @@ from datetime import date, datetime
 from pydantic import BaseModel, EmailStr, Field
 
 
+class SendOtpRequest(BaseModel):
+    email: EmailStr
+    full_name: Optional[str] = None
+
+
+class VerifyOtpRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(..., min_length=4, max_length=10)
+
+
 class UserRegister(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=6)
@@ -14,6 +24,7 @@ class UserRegister(BaseModel):
     blood_group: Optional[str] = None
     address: Optional[str] = None
     emergency_contact: Optional[str] = None
+    otp: Optional[str] = None
 
 
 class UserLogin(BaseModel):

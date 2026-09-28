@@ -1,4 +1,4 @@
-from app.models.user import User, Patient, Doctor, Department
+from app.models.user import User, Patient, Doctor, Department, EmailVerification
 from app.models.appointment import Appointment, DoctorSlot
 from app.models.report import Report
 from app.models.feedback import Feedback
@@ -18,6 +18,7 @@ __all__ = [
     "Patient",
     "Doctor",
     "Department",
+    "EmailVerification",
     "Appointment",
     "DoctorSlot",
     "Report",

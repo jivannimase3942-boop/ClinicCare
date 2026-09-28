@@ -30,11 +30,13 @@ def ensure_demo_accounts(db: SessionLocal):
     from app.models.user import User, Patient, Doctor, Department
 
     # 1. Admin
-    admin = db.query(User).filter(User.email == "admin@hospital.com").first()
+    admin_email = os.getenv("ADMIN_EMAIL", "admin@hospital.com")
+    admin_pass = os.getenv("ADMIN_PASSWORD", "Admin@123")
+    admin = db.query(User).filter(User.email == admin_email).first()
     if not admin:
         admin = User(
-            email="admin@hospital.com",
-            password_hash=get_password_hash("Admin@123"),
+            email=admin_email,
+            password_hash=get_password_hash(admin_pass),
             full_name="Hospital Administrator",
             phone="+1 (800) 555-0100",
             role="ADMIN",
@@ -43,7 +45,7 @@ def ensure_demo_accounts(db: SessionLocal):
         db.add(admin)
         db.flush()
     else:
-        admin.password_hash = get_password_hash("Admin@123")
+        admin.password_hash = get_password_hash(admin_pass)
         admin.is_active = True
         admin.role = "ADMIN"
 

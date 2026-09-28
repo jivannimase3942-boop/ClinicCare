@@ -44,6 +44,7 @@ from app.schemas.emergency import EmergencyRequestResponse, EmergencyStatsRespon
 
 router = APIRouter(prefix="/admin", tags=["Admin Dashboard & Management"])
 admin_auth = Depends(require_roles(["ADMIN", "FRONT_DESK"]))
+strict_admin_auth = Depends(require_roles(["ADMIN"]))
 
 
 
@@ -181,19 +182,19 @@ def update_admin_voice_call(id: str, data: VoiceCallUpdateStatus, db: Session = 
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.get("/conversations", response_model=ApiResponse[List[AIConversationResponse]], dependencies=[admin_auth])
+@router.get("/conversations", response_model=ApiResponse[List[AIConversationResponse]], dependencies=[strict_admin_auth])
 def list_admin_conversations(limit: int = 50, db: Session = Depends(get_db)):
     convs = ai_service.get_all_conversations(db, limit=limit)
     return ApiResponse(success=True, data=convs)
 
 
-@router.get("/errors", response_model=ApiResponse[List[ErrorLogResponse]], dependencies=[admin_auth])
+@router.get("/errors", response_model=ApiResponse[List[ErrorLogResponse]], dependencies=[strict_admin_auth])
 def list_admin_errors(limit: int = 50, db: Session = Depends(get_db)):
     logs = admin_service.get_error_logs(db, limit=limit)
     return ApiResponse(success=True, data=logs)
 
 
-@router.post("/errors", response_model=ApiResponse[ErrorLogResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/errors", response_model=ApiResponse[ErrorLogResponse], status_code=status.HTTP_201_CREATED, dependencies=[strict_admin_auth])
 def create_admin_error(data: ErrorLogCreate, db: Session = Depends(get_db)):
     log = admin_service.create_error_log(
         db=db,
@@ -206,19 +207,20 @@ def create_admin_error(data: ErrorLogCreate, db: Session = Depends(get_db)):
     )
     return ApiResponse(success=True, message="Error logged successfully", data=ErrorLogResponse.model_validate(log))
 
-@router.post("/tasks/scan-reminders", response_model=ApiResponse[Dict[str, Any]])
+
+@router.post("/tasks/scan-reminders", response_model=ApiResponse[Dict[str, Any]], dependencies=[strict_admin_auth])
 def trigger_scan_reminders(db: Session = Depends(get_db)):
     result = appointment_service.scan_and_send_reminders(db)
     return ApiResponse(success=True, message="Reminders scan completed", data=result)
 
 
-@router.post("/tasks/scan-feedback", response_model=ApiResponse[Dict[str, Any]])
+@router.post("/tasks/scan-feedback", response_model=ApiResponse[Dict[str, Any]], dependencies=[strict_admin_auth])
 def trigger_scan_feedback(db: Session = Depends(get_db)):
     result = feedback_service.scan_and_send_feedback_requests(db)
     return ApiResponse(success=True, message="Feedback scan completed", data=result)
 
 
-@router.post("/tasks/scan-reports", response_model=ApiResponse[Dict[str, Any]])
+@router.post("/tasks/scan-reports", response_model=ApiResponse[Dict[str, Any]], dependencies=[strict_admin_auth])
 def trigger_scan_reports(db: Session = Depends(get_db)):
     result = report_service.scan_and_send_report_notifications(db)
     return ApiResponse(success=True, message="Reports scan completed", data=result)

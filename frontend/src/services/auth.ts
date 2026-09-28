@@ -17,6 +17,7 @@ export interface RegisterPayload {
   blood_group?: string
   address?: string
   emergency_contact?: string
+  otp?: string
 }
 
 export interface AuthResponseData {
@@ -26,6 +27,22 @@ export interface AuthResponseData {
 }
 
 export const authService = {
+  sendRegistrationOtp: async (email: string, fullName?: string): Promise<{ message: string; email: string; dev_code?: string }> => {
+    const res = await api.post<ApiResponse<{ message: string; email: string; dev_code?: string }>>('/auth/register/send-otp', {
+      email,
+      full_name: fullName,
+    })
+    return res.data.data
+  },
+
+  verifyRegistrationOtp: async (email: string, otp: string): Promise<boolean> => {
+    const res = await api.post<ApiResponse<{ verified: boolean }>>('/auth/register/verify-otp', {
+      email,
+      otp,
+    })
+    return res.data.data.verified
+  },
+
   login: async (payload: LoginPayload): Promise<AuthResponseData> => {
     const res = await api.post<ApiResponse<AuthResponseData>>('/auth/login', payload)
     return res.data.data

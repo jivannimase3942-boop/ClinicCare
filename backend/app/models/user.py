@@ -118,3 +118,16 @@ class Doctor(Base):
     @property
     def phone(self) -> Optional[str]:
         return self.user.phone if self.user else None
+
+
+class EmailVerification(Base):
+    __tablename__ = "email_verifications"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    email = Column(String(255), nullable=False, index=True)
+    otp_hash = Column(String(255), nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)
+    max_attempts = Column(Integer, default=5, nullable=False)
+    is_verified = Column(Boolean, default=False, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
