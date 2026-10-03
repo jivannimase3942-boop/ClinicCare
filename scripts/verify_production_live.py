@@ -308,6 +308,38 @@ def run():
                 assert e.code == 403, f"Expected 403 for patient on /clinical-analytics, got {e.code}"
         test_check("Phase 3 Patient Analytics RBAC Guardrail", _phase3_patient_rbac_safety)
 
+    # 6b. Phase 4 Milestone 1: Multi-Branch & Organization Operations
+    safe_print("\n--- 6b. Testing Phase 4 Multi-Branch & Organization Operations ---")
+    if "Admin" in tokens:
+        def _phase4_organizations_and_branches():
+            hdr = {"Authorization": f"Bearer {tokens['Admin']}"}
+            # Admin lists branches
+            res = req(f"{BACKEND}/api/branches", headers=hdr)
+            assert res.getcode() == 200, f"Expected 200 on /api/branches, got {res.getcode()}"
+            body = json.loads(res.read().decode("utf-8"))
+            assert body.get("success") is True, f"Expected success True on /branches: {body}"
+            safe_print(f"       Operational branches retrieved: {len(body.get('data', []))}")
+        test_check("Phase 4 Multi-Branch Listing", _phase4_organizations_and_branches)
+
+        def _phase4_admin_organizations_list():
+            hdr = {"Authorization": f"Bearer {tokens['Admin']}"}
+            res = req(f"{BACKEND}/api/organizations", headers=hdr)
+            assert res.getcode() == 200, f"Expected 200 on /api/organizations, got {res.getcode()}"
+            body = json.loads(res.read().decode("utf-8"))
+            assert body.get("success") is True, f"Expected success True on /organizations: {body}"
+            safe_print(f"       Organizations retrieved: {len(body.get('data', []))}")
+        test_check("Phase 4 Organization Listing", _phase4_admin_organizations_list)
+
+    if "Patient" in tokens:
+        def _phase4_patient_branch_rbac():
+            hdr = {"Authorization": f"Bearer {tokens['Patient']}"}
+            try:
+                req(f"{BACKEND}/api/organizations", headers=hdr)
+                raise AssertionError("Patient unexpectedly accessed /api/organizations")
+            except urllib.error.HTTPError as e:
+                assert e.code == 403, f"Expected 403 for patient on /api/organizations, got {e.code}"
+        test_check("Phase 4 Patient Organization RBAC Guardrail", _phase4_patient_branch_rbac)
+
     # 7. Frontend Bundle & API Resolution
     safe_print("\n--- 7. Testing Frontend Bundle & API Resolution ---")
     def _test_bundle():
