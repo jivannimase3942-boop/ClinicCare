@@ -6,6 +6,7 @@ class Role:
     FRONT_DESK = "FRONT_DESK"
     ADMIN = "ADMIN"
     SUPER_ADMIN = "SUPER_ADMIN"
+    ORGANIZATION_ADMIN = "ORGANIZATION_ADMIN"
     BRANCH_ADMIN = "BRANCH_ADMIN"
     NURSE = "NURSE"
     PHARMACIST = "PHARMACIST"
@@ -19,6 +20,23 @@ class Role:
 
 ROLE_PERMISSIONS: Dict[str, Set[str]] = {
     Role.SUPER_ADMIN: {"*"},
+    Role.ORGANIZATION_ADMIN: {
+        "view_organization",
+        "manage_organization",
+        "manage_branches",
+        "view_branches",
+        "view_clinic",
+        "manage_clinic",
+        "view_audit_logs",
+        "manage_staff",
+        "manage_doctors",
+        "view_all_appointments",
+        "manage_appointments",
+        "view_reports",
+        "view_analytics",
+        "view_billing",
+        "manage_billing",
+    },
     Role.ADMIN: {
         "view_clinic",
         "manage_clinic",

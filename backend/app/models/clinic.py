@@ -29,11 +29,13 @@ class Clinic(Base):
     operating_hours = Column(String(255), nullable=False, default="09:00 AM - 08:00 PM (Monday - Saturday)")
     consultation_fee_default = Column(Numeric(10, 2), default=500.00, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    organization_id = Column(String(36), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True)
     settings_json = Column(Text, nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationships
+    organization = relationship("Organization", foreign_keys=[organization_id])
     users = relationship("User", back_populates="clinic")
     departments = relationship("Department", back_populates="clinic", cascade="all, delete-orphan")
     appointments = relationship("Appointment", back_populates="clinic", cascade="all, delete-orphan")

@@ -24,11 +24,15 @@ class User(Base):
     phone = Column(String(50), nullable=True, index=True)
     role = Column(String(50), nullable=False, default="PATIENT", index=True)  # PATIENT, DOCTOR, ADMIN, FRONT_DESK, etc.
     clinic_id = Column(String(36), ForeignKey("clinics.id", ondelete="SET NULL"), nullable=True, index=True)
+    organization_id = Column(String(36), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True)
+    branch_id = Column(String(36), ForeignKey("branches.id", ondelete="SET NULL", use_alter=True), nullable=True, index=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     clinic = relationship("Clinic", back_populates="users")
+    organization = relationship("Organization", foreign_keys=[organization_id], back_populates="users")
+    branch = relationship("Branch", foreign_keys=[branch_id], back_populates="users")
     patient_profile = relationship("Patient", back_populates="user", uselist=False, cascade="all, delete-orphan")
     doctor_profile = relationship("Doctor", back_populates="user", uselist=False, cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")

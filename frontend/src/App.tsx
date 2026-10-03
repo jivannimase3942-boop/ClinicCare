@@ -57,6 +57,7 @@ import { AdminEmergency } from '@/pages/admin/AdminEmergency'
 import { AdminReminders } from '@/pages/admin/AdminReminders'
 import { AdminAuditLogs } from '@/pages/admin/AdminAuditLogs'
 import { AdminClinicProfile } from '@/pages/admin/AdminClinicProfile'
+import { AdminOrganizationsBranches } from '@/pages/admin/AdminOrganizationsBranches'
 
 // Doctor Pages
 import { DoctorDashboard } from '@/pages/doctor/DoctorDashboard'
@@ -173,17 +174,18 @@ export const App: React.FC = () => {
                 <Route path="escalations" element={<AdminEscalations />} />
               </Route>
 
-              {/* Admin Routes - Strictly ADMIN role */}
+              {/* Admin Routes - Administrative & Multi-Branch Management */}
               <Route
                 path="/admin"
                 element={
-                  <ProtectedRoute allowedRoles={['ADMIN']}>
+                  <ProtectedRoute allowedRoles={['ADMIN', 'SUPER_ADMIN', 'ORGANIZATION_ADMIN', 'BRANCH_ADMIN']}>
                     <AdminLayout />
                   </ProtectedRoute>
                 }
               >
                 <Route index element={<Navigate to="/admin/dashboard" replace />} />
                 <Route path="dashboard" element={<AdminDashboard />} />
+                <Route path="branches" element={<AdminOrganizationsBranches />} />
                 <Route path="revenue" element={<AdminRevenue />} />
                 <Route path="pharmacy" element={<AdminPharmacyPage />} />
                 <Route path="clinic-profile" element={<AdminClinicProfile />} />

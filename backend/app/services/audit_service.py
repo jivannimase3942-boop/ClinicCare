@@ -62,6 +62,30 @@ class AuditService:
             return None
 
     @staticmethod
+    def log_event(
+        db: Session,
+        action: str,
+        user_id: Optional[str] = None,
+        user_name: Optional[str] = None,
+        resource_type: Optional[str] = None,
+        resource_id: Optional[str] = None,
+        details: Optional[Any] = None,
+        clinic_id: Optional[str] = None,
+        **kwargs,
+    ) -> Optional[AuditLog]:
+        """Convenience method matching standard event logging signatures."""
+        return AuditService.log_action(
+            db=db,
+            action=action,
+            user_id=user_id,
+            entity_type=resource_type,
+            entity_id=resource_id,
+            details=details,
+            clinic_id=clinic_id,
+            **kwargs,
+        )
+
+    @staticmethod
     def get_logs(
         db: Session,
         clinic_id: Optional[str] = None,

@@ -37,13 +37,46 @@ from app.api.routes import (
     lab,
     pharmacy,
     automation,
+    organizations,
 )
+
+
+def ensure_schema_updates():
+    try:
+        with engine.begin() as conn:
+            dialect = engine.dialect.name
+            if dialect == "sqlite":
+                for table, col, col_def in [
+                    ("users", "organization_id", "VARCHAR(36)"),
+                    ("users", "branch_id", "VARCHAR(36)"),
+                    ("clinics", "organization_id", "VARCHAR(36)"),
+                ]:
+                    try:
+                        res = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+                        existing_cols = [r[1] for r in res]
+                        if col not in existing_cols:
+                            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}"))
+                    except Exception:
+                        pass
+            elif dialect == "postgresql":
+                for table, col, col_def in [
+                    ("users", "organization_id", "VARCHAR(36)"),
+                    ("users", "branch_id", "VARCHAR(36)"),
+                    ("clinics", "organization_id", "VARCHAR(36)"),
+                ]:
+                    try:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_def}"))
+                    except Exception:
+                        pass
+    except Exception as e:
+        print(f"[ClinicCare] Notice during ensure_schema_updates: {e}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize DB tables if SQLite or fresh DB
     Base.metadata.create_all(bind=engine)
+    ensure_schema_updates()
     try:
         from app.db.seed import seed_database
         seed_database()
@@ -209,6 +242,7 @@ app.include_router(prescriptions.router, prefix="/api")
 app.include_router(lab.router, prefix="/api")
 app.include_router(pharmacy.router, prefix="/api")
 app.include_router(automation.router, prefix="/api")
+app.include_router(organizations.router, prefix="/api")
 
 # Direct Webhook endpoints matching JSON specification (/whatsapp-webhook)
 @app.get("/whatsapp-webhook", tags=["WhatsApp Webhook"])

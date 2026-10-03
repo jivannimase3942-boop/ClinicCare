@@ -150,6 +150,90 @@ def ensure_demo_accounts(db: SessionLocal):
             db.add(doc_p)
             db.flush()
 
+    # 5. Super Admin
+    super_admin = db.query(User).filter(User.email == "superadmin@hospital.com").first()
+    if not super_admin:
+        super_admin = User(
+            email="superadmin@hospital.com",
+            password_hash=get_password_hash("Super@123"),
+            full_name="Enterprise Super Administrator",
+            phone="+91 (800) 555-0190",
+            role="SUPER_ADMIN",
+            is_active=True,
+        )
+        db.add(super_admin)
+        db.flush()
+    else:
+        super_admin.password_hash = get_password_hash("Super@123")
+        super_admin.is_active = True
+        super_admin.role = "SUPER_ADMIN"
+
+    # 6. Organization Admin
+    org_admin = db.query(User).filter(User.email == "orgadmin@hospital.com").first()
+    if not org_admin:
+        org_admin = User(
+            email="orgadmin@hospital.com",
+            password_hash=get_password_hash("Org@123"),
+            full_name="Apollo Organization Administrator",
+            phone="+91 (800) 555-0191",
+            role="ORGANIZATION_ADMIN",
+            is_active=True,
+        )
+        db.add(org_admin)
+        db.flush()
+    else:
+        org_admin.password_hash = get_password_hash("Org@123")
+        org_admin.is_active = True
+        org_admin.role = "ORGANIZATION_ADMIN"
+
+    # Ensure Organization and Branches
+    try:
+        from app.models.organization import Organization, Branch
+        org = db.query(Organization).filter(Organization.code == "APOLLO").first()
+        if not org:
+            org = Organization(
+                name="Apollo Care Healthcare Network",
+                code="APOLLO",
+                email="hq@apollocare.com",
+                phone="+91 (800) 555-0199",
+                headquarters_address="Apollo Central Towers, MG Road, Bengaluru",
+                is_active=True,
+            )
+            db.add(org)
+            db.flush()
+
+        primary_clinic = db.query(Clinic).first()
+        if primary_clinic and not primary_clinic.organization_id:
+            primary_clinic.organization_id = org.id
+            db.flush()
+
+        branch = db.query(Branch).filter(Branch.organization_id == org.id).first()
+        if not branch:
+            branch = Branch(
+                organization_id=org.id,
+                clinic_id=primary_clinic.id if primary_clinic else None,
+                name="Apollo Central Hospital Branch",
+                code="CENTRAL-01",
+                address="123 Healthcare Avenue",
+                city="Bengaluru",
+                state="Karnataka",
+                pincode="560001",
+                phone="+91 80 2345 6789",
+                email="central@apollocare.com",
+                operating_hours="24/7 Emergency & OPD (08:00 AM - 09:00 PM)",
+                is_active=True,
+            )
+            db.add(branch)
+            db.flush()
+
+        if org_admin:
+            org_admin.organization_id = org.id
+            org_admin.branch_id = branch.id
+            if primary_clinic:
+                org_admin.clinic_id = primary_clinic.id
+    except Exception as e:
+        print(f"[Seed] Warning ensuring organization/branch: {e}")
+
     db.commit()
 
 

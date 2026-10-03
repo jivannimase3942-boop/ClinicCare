@@ -19,8 +19,11 @@ from app.models.clinical import ConsultationRecord, VitalSign, ClinicalDocument
 from app.models.prescription import Medicine, Prescription, PrescriptionItem
 from app.models.lab import LabTest, LabOrder, LabSample, LabResult, LabReport
 from app.models.pharmacy import Supplier, StockBatch, StockTransaction
+from app.models.organization import Organization, Branch
 
 __all__ = [
+    "Organization",
+    "Branch",
     "Clinic",
     "AuditLog",
     "User",

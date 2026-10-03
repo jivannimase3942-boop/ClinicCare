@@ -6,6 +6,7 @@ export type UserRole =
   | 'PENDING_DOCTOR'
   | 'PENDING_FRONT_DESK'
   | 'SUPER_ADMIN'
+  | 'ORGANIZATION_ADMIN'
   | 'BRANCH_ADMIN'
   | 'NURSE'
   | 'PHARMACIST'
@@ -50,7 +51,50 @@ export interface User {
   doctor_profile?: DoctorProfile | null
   clinic_id?: string | null
   clinic_name?: string | null
+  organization_id?: string | null
+  branch_id?: string | null
   permissions?: string[] | null
+}
+
+export interface Branch {
+  id: string
+  organization_id: string
+  clinic_id?: string | null
+  name: string
+  code: string
+  address?: string | null
+  city: string
+  state: string
+  pincode?: string | null
+  phone?: string | null
+  email?: string | null
+  operating_hours: string
+  branch_admin_user_id?: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  stats?: {
+    total_doctors: number
+    total_appointments: number
+    total_patients: number
+    total_invoices: number
+    total_revenue_inr: number
+  }
+}
+
+export interface Organization {
+  id: string
+  name: string
+  code: string
+  description?: string | null
+  email?: string | null
+  phone?: string | null
+  website?: string | null
+  headquarters_address?: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  branches?: Branch[]
 }
 
 export interface Clinic {

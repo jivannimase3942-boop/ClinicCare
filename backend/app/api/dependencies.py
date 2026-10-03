@@ -123,13 +123,53 @@ def get_optional_patient(
 
 def require_roles(allowed_roles: List[str]):
     def role_checker(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role not in allowed_roles and current_user.role != "SUPER_ADMIN":
+        if current_user.role == "SUPER_ADMIN":
+            return current_user
+        if current_user.role == "ORGANIZATION_ADMIN" and any(r in ["ADMIN", "BRANCH_ADMIN", "ORGANIZATION_ADMIN"] for r in allowed_roles):
+            return current_user
+        if current_user.role == "BRANCH_ADMIN" and any(r in ["ADMIN", "BRANCH_ADMIN"] for r in allowed_roles):
+            return current_user
+        if current_user.role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Access denied. Requires one of roles: {', '.join(allowed_roles)}",
             )
         return current_user
     return role_checker
+
+
+def verify_branch_access(db: Session, current_user: User, target_branch_id: str):
+    """
+    Validates that current_user has legitimate access to target_branch_id:
+    - SUPER_ADMIN: allowed
+    - ORGANIZATION_ADMIN: allowed if branch belongs to user's organization
+    - BRANCH_ADMIN / STAFF: allowed ONLY if assigned to that specific branch or its clinic
+    """
+    from app.models.organization import Branch
+    branch = db.query(Branch).filter(Branch.id == target_branch_id).first()
+    if not branch:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
+
+    if current_user.role == "SUPER_ADMIN":
+        return branch
+
+    if current_user.role == "ORGANIZATION_ADMIN":
+        if current_user.organization_id and current_user.organization_id != branch.organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Branch does not belong to your organization"
+            )
+        return branch
+
+    if current_user.branch_id and current_user.branch_id == branch.id:
+        return branch
+    if current_user.clinic_id and branch.clinic_id and current_user.clinic_id == branch.clinic_id:
+        return branch
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Cross-branch access forbidden. You do not have permissions for this branch."
+    )
 
 
 def require_permission(required_permission: str):

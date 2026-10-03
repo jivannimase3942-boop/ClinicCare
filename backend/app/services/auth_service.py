@@ -152,10 +152,12 @@ class AuthService:
 
         # Role restrictions: prevent public registration of privileged accounts
         requested_role = (reg_data.role or "PATIENT").upper()
-        if requested_role in ["ADMIN", "FRONT_DESK"]:
-            raise ValueError("Administrative roles cannot be registered through public registration")
+        if requested_role in ["ADMIN", "FRONT_DESK", "BRANCH_ADMIN", "ORGANIZATION_ADMIN", "SUPER_ADMIN"]:
+            raise ValueError("Administrative and privileged roles cannot be registered through public registration")
         if requested_role == "DOCTOR":
             raise ValueError("Doctor accounts require clinical verification and administrator provisioning")
+        if requested_role != "PATIENT":
+            raise ValueError("Privileged and staff roles cannot be registered through public registration")
 
         # If OTP is provided, verify it and consume single-use status
         if reg_data.otp:
