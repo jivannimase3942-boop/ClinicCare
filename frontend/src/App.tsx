@@ -62,15 +62,17 @@ import { AdminClinicProfile } from '@/pages/admin/AdminClinicProfile'
 import { DoctorDashboard } from '@/pages/doctor/DoctorDashboard'
 import { DoctorAppointments } from '@/pages/doctor/DoctorAppointments'
 import { DoctorConsultationPage } from '@/pages/doctor/DoctorConsultationPage'
+import { DoctorPrescriptionPage } from '@/pages/doctor/DoctorPrescriptionPage'
 
 // Front Desk Pages
 import { FrontDeskDashboard } from '@/pages/frontdesk/FrontDeskDashboard'
 import { FrontDeskQueue } from '@/pages/frontdesk/FrontDeskQueue'
 
-// Admin Revenue & Patient Invoices / Timeline
+// Admin Revenue & Patient Invoices / Timeline / Prescriptions
 import { AdminRevenue } from '@/pages/admin/AdminRevenue'
 import { PatientInvoicesPage } from '@/pages/patient/PatientInvoicesPage'
 import { PatientTimelinePage } from '@/pages/patient/PatientTimelinePage'
+import { PatientPrescriptionsPage } from '@/pages/patient/PatientPrescriptionsPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -116,6 +118,7 @@ export const App: React.FC = () => {
                 <Route path="appointments" element={<AppointmentsPage />} />
                 <Route path="appointments/book" element={<BookAppointmentPage />} />
                 <Route path="timeline" element={<PatientTimelinePage />} />
+                <Route path="prescriptions" element={<PatientPrescriptionsPage />} />
                 <Route path="invoices" element={<PatientInvoicesPage />} />
                 <Route path="ambulance" element={<AmbulancePage />} />
                 <Route path="blood" element={<BloodSearchPage />} />
@@ -143,6 +146,7 @@ export const App: React.FC = () => {
                 <Route path="appointments" element={<DoctorAppointments />} />
                 <Route path="consultation" element={<DoctorConsultationPage />} />
                 <Route path="consultation/:appointmentId" element={<DoctorConsultationPage />} />
+                <Route path="prescriptions" element={<DoctorPrescriptionPage />} />
               </Route>
 
               {/* Front Desk Routes */}

@@ -685,3 +685,64 @@ export interface PatientTimeline {
   total_events: number
   events: TimelineItem[]
 }
+
+export interface Medicine {
+  id: string
+  clinic_id?: string | null
+  brand_name: string
+  generic_name: string
+  strength: string
+  dosage_form: string
+  manufacturer?: string | null
+  category: string
+  hsn_code?: string | null
+  gst_rate_percent: number
+  unit_price: number
+  is_active: boolean
+  created_at: string
+}
+
+export interface PrescriptionItem {
+  id?: string
+  prescription_id?: string
+  medicine_id?: string | null
+  medicine_name: string
+  generic_name?: string | null
+  dosage_form: string
+  strength?: string | null
+  dosage: string
+  frequency: string
+  duration: string
+  route: string
+  instructions: string
+  quantity: number
+}
+
+export interface Prescription {
+  id: string
+  prescription_number: string
+  clinic_id: string
+  clinic_name?: string | null
+  clinic_address?: string | null
+  clinic_phone?: string | null
+  patient_id: string
+  patient_name?: string | null
+  patient_phone?: string | null
+  patient_gender?: string | null
+  doctor_id: string
+  doctor_name?: string | null
+  doctor_specialization?: string | null
+  doctor_qualification?: string | null
+  appointment_id?: string | null
+  consultation_id?: string | null
+  status: 'DRAFT' | 'FINALIZED' | 'ISSUED' | 'CANCELLED'
+  diagnosis_summary: string
+  general_advice?: string | null
+  diet_lifestyle_notes?: string | null
+  follow_up_date?: string | null
+  is_finalized: boolean
+  finalized_at?: string | null
+  items: PrescriptionItem[]
+  created_at: string
+  updated_at: string
+}
