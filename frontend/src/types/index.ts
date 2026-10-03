@@ -746,3 +746,85 @@ export interface Prescription {
   created_at: string
   updated_at: string
 }
+
+export interface LabTest {
+  id: string
+  clinic_id?: string | null
+  name: string
+  code: string
+  category: string
+  sample_type: string
+  turnaround_hours: number
+  price: number
+  normal_range?: string | null
+  unit?: string | null
+  is_active: boolean
+  created_at: string
+}
+
+export interface LabSample {
+  id: string
+  lab_order_id: string
+  barcode_number: string
+  sample_type: string
+  status: string
+  rejection_reason?: string | null
+  collected_at?: string | null
+  collected_by_name?: string | null
+  created_at: string
+}
+
+export interface LabResult {
+  id: string
+  lab_order_id: string
+  lab_test_id: string
+  test_name?: string | null
+  parameter_name: string
+  result_value: string
+  unit?: string | null
+  reference_range?: string | null
+  is_abnormal: boolean
+  technician_notes?: string | null
+  tested_by_name?: string | null
+  created_at: string
+}
+
+export interface LabReport {
+  id: string
+  report_number: string
+  lab_order_id: string
+  clinic_id: string
+  clinic_name?: string | null
+  clinic_address?: string | null
+  patient_id: string
+  patient_name?: string | null
+  doctor_name?: string | null
+  is_validated: boolean
+  validated_at?: string | null
+  validated_by_name?: string | null
+  is_released: boolean
+  released_at?: string | null
+  summary_notes?: string | null
+  results: LabResult[]
+  created_at: string
+}
+
+export interface LabOrder {
+  id: string
+  order_number: string
+  clinic_id: string
+  patient_id: string
+  patient_name?: string | null
+  doctor_id: string
+  doctor_name?: string | null
+  appointment_id?: string | null
+  priority: 'ROUTINE' | 'URGENT' | 'STAT'
+  status: 'ORDERED' | 'SAMPLE_PENDING' | 'SAMPLE_COLLECTED' | 'PROCESSING' | 'RESULT_READY' | 'VALIDATED' | 'CANCELLED'
+  clinical_notes?: string | null
+  tests: LabTest[]
+  samples: LabSample[]
+  results: LabResult[]
+  report?: LabReport | null
+  created_at: string
+  updated_at: string
+}

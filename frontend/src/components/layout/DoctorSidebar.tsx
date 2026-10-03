@@ -8,6 +8,7 @@ import {
   LogOut,
   Stethoscope,
   Pill,
+  FlaskConical,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -20,6 +21,7 @@ export const DoctorSidebar: React.FC = () => {
     { to: '/doctor/appointments', label: 'Consultations & Queue', icon: CalendarCheck },
     { to: '/doctor/consultation', label: 'Clinical Workspace', icon: Stethoscope },
     { to: '/doctor/prescriptions', label: 'Digital Prescriptions', icon: Pill },
+    { to: '/doctor/lab-orders', label: 'Lab & Diagnostics', icon: FlaskConical },
   ]
 
   return (

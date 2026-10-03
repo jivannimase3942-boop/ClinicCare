@@ -63,6 +63,7 @@ import { DoctorDashboard } from '@/pages/doctor/DoctorDashboard'
 import { DoctorAppointments } from '@/pages/doctor/DoctorAppointments'
 import { DoctorConsultationPage } from '@/pages/doctor/DoctorConsultationPage'
 import { DoctorPrescriptionPage } from '@/pages/doctor/DoctorPrescriptionPage'
+import { DoctorLabOrdersPage } from '@/pages/doctor/DoctorLabOrdersPage'
 
 // Front Desk Pages
 import { FrontDeskDashboard } from '@/pages/frontdesk/FrontDeskDashboard'
@@ -147,6 +148,7 @@ export const App: React.FC = () => {
                 <Route path="consultation" element={<DoctorConsultationPage />} />
                 <Route path="consultation/:appointmentId" element={<DoctorConsultationPage />} />
                 <Route path="prescriptions" element={<DoctorPrescriptionPage />} />
+                <Route path="lab-orders" element={<DoctorLabOrdersPage />} />
               </Route>
 
               {/* Front Desk Routes */}

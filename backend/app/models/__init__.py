@@ -17,6 +17,7 @@ from app.models.reminder import FollowUpReminder
 from app.models.billing import Invoice, InvoiceItem, Payment, Refund
 from app.models.clinical import ConsultationRecord, VitalSign, ClinicalDocument
 from app.models.prescription import Medicine, Prescription, PrescriptionItem
+from app.models.lab import LabTest, LabOrder, LabSample, LabResult, LabReport
 
 __all__ = [
     "Clinic",
@@ -40,6 +41,11 @@ __all__ = [
     "Medicine",
     "Prescription",
     "PrescriptionItem",
+    "LabTest",
+    "LabOrder",
+    "LabSample",
+    "LabResult",
+    "LabReport",
     "Report",
     "Feedback",
     "AIConversation",
