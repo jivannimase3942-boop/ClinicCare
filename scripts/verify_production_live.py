@@ -264,6 +264,50 @@ def run():
             assert res_my_inv.getcode() == 200, f"Failed patient billing/invoices: {res_my_inv.getcode()}"
         test_check("Phase 2 Patient Billing RBAC Isolation", _phase2_patient_billing_rbac)
 
+    # 6c. Phase 3: Clinical, Prescription, Lab, Pharmacy, and AI Verification
+    safe_print("\n--- 6c. Testing Phase 3 Clinical, Rx, Lab, Pharmacy & Analytics ---")
+    if "Doctor" in tokens:
+        def _phase3_doctor_clinical():
+            hdr = {"Authorization": f"Bearer {tokens['Doctor']}"}
+            # Medicine catalog
+            res_meds = req(f"{BACKEND}/api/prescriptions/medicines", headers=hdr)
+            assert res_meds.getcode() == 200, f"Failed /prescriptions/medicines: {res_meds.getcode()}"
+            # Lab tests catalog
+            res_labs = req(f"{BACKEND}/api/lab/tests", headers=hdr)
+            assert res_labs.getcode() == 200, f"Failed /lab/tests: {res_labs.getcode()}"
+            # Lab orders
+            res_orders = req(f"{BACKEND}/api/lab/orders", headers=hdr)
+            assert res_orders.getcode() == 200, f"Failed /lab/orders: {res_orders.getcode()}"
+        test_check("Phase 3 Doctor Clinical, Medicine Catalog & Lab Endpoints", _phase3_doctor_clinical)
+
+    if "Admin" in tokens:
+        def _phase3_admin_pharmacy_analytics():
+            hdr = {"Authorization": f"Bearer {tokens['Admin']}"}
+            # Pharmacy batches
+            res_batches = req(f"{BACKEND}/api/pharmacy/batches", headers=hdr)
+            assert res_batches.getcode() == 200, f"Failed /pharmacy/batches: {res_batches.getcode()}"
+            # Pharmacy alerts
+            res_alerts = req(f"{BACKEND}/api/pharmacy/alerts", headers=hdr)
+            assert res_alerts.getcode() == 200, f"Failed /pharmacy/alerts: {res_alerts.getcode()}"
+            # Clinical analytics
+            res_an = req(f"{BACKEND}/api/admin/clinical-analytics", headers=hdr)
+            assert res_an.getcode() == 200, f"Failed /admin/clinical-analytics: {res_an.getcode()}"
+            an_data = json.loads(res_an.read().decode("utf-8")).get("data", {})
+            assert "patient_metrics" in an_data, "Missing patient_metrics in clinical analytics"
+            assert "pharmacy_metrics" in an_data, "Missing pharmacy_metrics in clinical analytics"
+        test_check("Phase 3 Admin Pharmacy Inventory & Clinical Analytics Endpoints", _phase3_admin_pharmacy_analytics)
+
+    if "Patient" in tokens:
+        def _phase3_patient_rbac_safety():
+            hdr = {"Authorization": f"Bearer {tokens['Patient']}"}
+            # Patient blocked from admin clinical analytics
+            try:
+                req(f"{BACKEND}/api/admin/clinical-analytics", headers=hdr)
+                raise AssertionError("Patient unexpectedly accessed /admin/clinical-analytics")
+            except urllib.error.HTTPError as e:
+                assert e.code == 403, f"Expected 403 for patient on /clinical-analytics, got {e.code}"
+        test_check("Phase 3 Patient Analytics RBAC Guardrail", _phase3_patient_rbac_safety)
+
     # 7. Frontend Bundle & API Resolution
     safe_print("\n--- 7. Testing Frontend Bundle & API Resolution ---")
     def _test_bundle():
