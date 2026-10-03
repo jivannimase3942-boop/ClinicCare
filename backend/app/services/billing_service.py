@@ -364,7 +364,10 @@ class BillingService:
         pending_dues = sum(float(i.balance_due) for i in all_invoices if i.status in ["PENDING", "PARTIALLY_PAID"])
         total_refunds = sum(float(r.amount) for r in all_refunds)
 
+        total_rev = sum(float(p.amount) for p in all_payments)
+
         return RevenueSummaryResponse(
+            total_revenue=round(total_rev, 2),
             today_revenue=round(today_rev, 2),
             weekly_revenue=round(weekly_rev, 2),
             monthly_revenue=round(monthly_rev, 2),

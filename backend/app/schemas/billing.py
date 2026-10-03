@@ -99,6 +99,7 @@ class InvoiceResponse(BaseModel):
 
 
 class RevenueSummaryResponse(BaseModel):
+    total_revenue: float = 0.0
     today_revenue: float
     weekly_revenue: float
     monthly_revenue: float

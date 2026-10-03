@@ -243,6 +243,7 @@ export interface Invoice {
 }
 
 export interface RevenueSummary {
+  total_revenue: number
   today_revenue: number
   weekly_revenue: number
   monthly_revenue: number

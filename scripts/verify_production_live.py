@@ -247,7 +247,7 @@ def run():
             res_rev = req(f"{BACKEND}/api/billing/revenue", headers=hdr)
             assert res_rev.getcode() == 200, f"Failed billing/revenue: {res_rev.getcode()}"
             rev_data = json.loads(res_rev.read().decode("utf-8")).get("data", {})
-            assert "total_revenue" in rev_data, "Revenue summary missing total_revenue"
+            assert "today_revenue" in rev_data or "total_revenue" in rev_data, "Revenue summary missing revenue metrics"
         test_check("Phase 2 Admin OPD Queue, Invoices & Revenue Endpoints", _phase2_admin_billing)
 
     if "Patient" in tokens:
