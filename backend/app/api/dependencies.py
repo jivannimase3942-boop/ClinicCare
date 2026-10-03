@@ -70,6 +70,20 @@ def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account has been disabled",
         )
+
+    # Check if session is tracked and active
+    jti = payload.get("jti")
+    if jti:
+        from app.models.security_privacy import UserSession
+        sess = db.query(UserSession).filter(UserSession.token_jti == jti).first()
+        if sess and not sess.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session has been terminated or revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        setattr(user, "current_jti", jti)
+
     return user
 
 

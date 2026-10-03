@@ -20,10 +20,16 @@ from app.models.prescription import Medicine, Prescription, PrescriptionItem
 from app.models.lab import LabTest, LabOrder, LabSample, LabResult, LabReport
 from app.models.pharmacy import Supplier, StockBatch, StockTransaction
 from app.models.organization import Organization, Branch
+from app.models.security_privacy import UserSession, SecurityEvent, PatientConsent, PrivacyRequest, MFAConfig
 
 __all__ = [
     "Organization",
     "Branch",
+    "UserSession",
+    "SecurityEvent",
+    "PatientConsent",
+    "PrivacyRequest",
+    "MFAConfig",
     "Clinic",
     "AuditLog",
     "User",

@@ -340,6 +340,47 @@ def run():
                 assert e.code == 403, f"Expected 403 for patient on /api/organizations, got {e.code}"
         test_check("Phase 4 Patient Organization RBAC Guardrail", _phase4_patient_branch_rbac)
 
+    # 6c. Phase 4 Milestone 2: Security, Privacy & Consent
+    safe_print("\n--- 6c. Testing Phase 4 Security, Privacy & Consent Controls ---")
+    if "Patient" in tokens:
+        def _phase4_patient_sessions_and_mfa():
+            hdr = {"Authorization": f"Bearer {tokens['Patient']}"}
+            # Active sessions
+            res = req(f"{BACKEND}/api/security/sessions", headers=hdr)
+            assert res.getcode() == 200
+            body = json.loads(res.read().decode("utf-8"))
+            assert body.get("success") is True
+            # MFA readiness status
+            mfa_res = req(f"{BACKEND}/api/security/mfa/status", headers=hdr)
+            assert mfa_res.getcode() == 200
+            mfa_body = json.loads(mfa_res.read().decode("utf-8"))
+            assert mfa_body.get("data", {}).get("configured") is True
+        test_check("Phase 4 Patient Active Sessions & MFA Status", _phase4_patient_sessions_and_mfa)
+
+        def _phase4_patient_consents_and_dsar():
+            hdr = {"Authorization": f"Bearer {tokens['Patient']}"}
+            # Consents list
+            res = req(f"{BACKEND}/api/consents/my", headers=hdr)
+            assert res.getcode() == 200
+            # Privacy requests list
+            p_res = req(f"{BACKEND}/api/privacy/requests/my", headers=hdr)
+            assert p_res.getcode() == 200
+        test_check("Phase 4 Patient Consents & DSAR Privacy Requests", _phase4_patient_consents_and_dsar)
+
+    if "Admin" in tokens:
+        def _phase4_admin_security_events_and_consents():
+            hdr = {"Authorization": f"Bearer {tokens['Admin']}"}
+            # Admin security events
+            res = req(f"{BACKEND}/api/security/events", headers=hdr)
+            assert res.getcode() == 200
+            # Admin clinic consents
+            c_res = req(f"{BACKEND}/api/admin/consents", headers=hdr)
+            assert c_res.getcode() == 200
+            # Admin privacy requests
+            pr_res = req(f"{BACKEND}/api/admin/privacy/requests", headers=hdr)
+            assert pr_res.getcode() == 200
+        test_check("Phase 4 Admin Security Events & Consent Oversight", _phase4_admin_security_events_and_consents)
+
     # 7. Frontend Bundle & API Resolution
     safe_print("\n--- 7. Testing Frontend Bundle & API Resolution ---")
     def _test_bundle():

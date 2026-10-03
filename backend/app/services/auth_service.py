@@ -443,14 +443,43 @@ class AuthService:
         return user
 
     @staticmethod
-    def create_token_for_user(user: User) -> str:
+    def create_token_for_user(
+        user: User,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> str:
+        import uuid
+        token_jti = str(uuid.uuid4())
         token_data = {
             "sub": user.id,
             "email": user.email,
             "role": user.role,
             "full_name": user.full_name,
+            "jti": token_jti,
         }
-        return create_access_token(token_data)
+        token = create_access_token(token_data)
+
+        # Track active session in database
+        try:
+            from app.models.security_privacy import UserSession
+            from app.db.session import SessionLocal
+            with SessionLocal() as session_db:
+                expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+                new_session = UserSession(
+                    user_id=user.id,
+                    token_jti=token_jti,
+                    ip_address=ip_address,
+                    user_agent=user_agent[:255] if user_agent else None,
+                    is_active=True,
+                    last_activity_at=datetime.now(timezone.utc),
+                    expires_at=expires_at,
+                )
+                session_db.add(new_session)
+                session_db.commit()
+        except Exception as e:
+            print(f"[AuthService] Note tracking user session: {e}")
+
+        return token
 
     @staticmethod
     def format_user_response(db: Session, user: User) -> UserResponse:
