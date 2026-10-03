@@ -602,3 +602,86 @@ export interface ApiResponse<T = any> {
   data: T
   error_code?: string
 }
+
+export interface VitalSign {
+  id: string
+  clinic_id: string
+  patient_id: string
+  appointment_id?: string | null
+  consultation_id?: string | null
+  temperature_celsius?: number | null
+  pulse_bpm?: number | null
+  bp_systolic?: number | null
+  bp_diastolic?: number | null
+  respiratory_rate?: number | null
+  spo2_percent?: number | null
+  weight_kg?: number | null
+  height_cm?: number | null
+  bmi?: number | null
+  notes?: string | null
+  recorded_at: string
+  created_at: string
+}
+
+export interface ConsultationRecord {
+  id: string
+  clinic_id: string
+  patient_id: string
+  patient_name?: string | null
+  doctor_id: string
+  doctor_name?: string | null
+  doctor_specialization?: string | null
+  appointment_id?: string | null
+  status: 'DRAFT' | 'FINALIZED' | 'AMENDED'
+  version: number
+  chief_complaint: string
+  history_of_present_illness?: string | null
+  medical_history?: string | null
+  allergies?: string | null
+  lifestyle_notes?: string | null
+  examination_notes?: string | null
+  diagnosis: string
+  treatment_plan?: string | null
+  investigations_ordered?: string | null
+  follow_up_date?: string | null
+  referral?: string | null
+  clinical_notes?: string | null
+  is_finalized: boolean
+  finalized_at?: string | null
+  created_at: string
+  updated_at: string
+  vitals?: VitalSign[]
+}
+
+export interface ClinicalDocument {
+  id: string
+  clinic_id: string
+  patient_id: string
+  consultation_id?: string | null
+  document_type: string
+  title: string
+  file_url: string
+  file_type: string
+  file_size_bytes: number
+  description?: string | null
+  created_at: string
+}
+
+export interface TimelineItem {
+  event_type: 'CONSULTATION' | 'VITAL_SIGN' | 'DOCUMENT' | 'APPOINTMENT' | 'REPORT'
+  event_id: string
+  timestamp: string
+  title: string
+  subtitle?: string | null
+  status?: string | null
+  doctor_name?: string | null
+  department_name?: string | null
+  details: Record<string, any>
+}
+
+export interface PatientTimeline {
+  patient_id: string
+  patient_name: string
+  total_events: number
+  events: TimelineItem[]
+}

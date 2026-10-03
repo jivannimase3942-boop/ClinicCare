@@ -16,7 +16,8 @@ export const DoctorSidebar: React.FC = () => {
 
   const links = [
     { to: '/doctor/dashboard', label: 'Doctor Dashboard', icon: LayoutDashboard },
-    { to: '/doctor/appointments', label: 'Consultations', icon: CalendarCheck },
+    { to: '/doctor/appointments', label: 'Consultations & Queue', icon: CalendarCheck },
+    { to: '/doctor/consultation', label: 'Clinical Workspace', icon: Stethoscope },
   ]
 
   return (

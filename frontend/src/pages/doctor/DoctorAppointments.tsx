@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { doctorPortalService } from '@/services/doctor_portal'
 import { appointmentService } from '@/services/appointments'
@@ -7,9 +8,10 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { formatDate } from '@/lib/utils'
-import { Volume2, PlayCircle, CheckCircle, SkipForward } from 'lucide-react'
+import { Volume2, PlayCircle, CheckCircle, SkipForward, Stethoscope } from 'lucide-react'
 
 export const DoctorAppointments: React.FC = () => {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { showToast } = useToast()
 
@@ -128,6 +130,17 @@ export const DoctorAppointments: React.FC = () => {
                     Skip
                   </Button>
                 )}
+
+                {/* Clinical Encounter Action */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-teal-600 text-teal-800 hover:bg-teal-50"
+                  leftIcon={<Stethoscope className="w-3.5 h-3.5 text-teal-600" />}
+                  onClick={() => navigate(`/doctor/consultation/${a.id}`)}
+                >
+                  Clinical Notes
+                </Button>
 
                 {/* Legacy Status Action */}
                 {a.status === 'confirmed' && !a.queue_status && (

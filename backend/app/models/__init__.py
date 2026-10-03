@@ -15,6 +15,7 @@ from app.models.facility import Facility
 from app.models.visit import VisitHistory
 from app.models.reminder import FollowUpReminder
 from app.models.billing import Invoice, InvoiceItem, Payment, Refund
+from app.models.clinical import ConsultationRecord, VitalSign, ClinicalDocument
 
 __all__ = [
     "Clinic",
@@ -32,6 +33,9 @@ __all__ = [
     "InvoiceItem",
     "Payment",
     "Refund",
+    "ConsultationRecord",
+    "VitalSign",
+    "ClinicalDocument",
     "Report",
     "Feedback",
     "AIConversation",
