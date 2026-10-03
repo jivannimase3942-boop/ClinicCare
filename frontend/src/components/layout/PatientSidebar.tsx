@@ -18,6 +18,7 @@ import {
   Building2,
   BellRing,
   ClipboardCheck,
+  Receipt,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -29,6 +30,7 @@ export const PatientSidebar: React.FC = () => {
     { to: '/patient/dashboard', label: 'Overview', icon: LayoutDashboard },
     { to: '/patient/appointments', label: 'My Appointments', icon: Calendar },
     { to: '/patient/appointments/book', label: 'Book Appointment', icon: UserCheck },
+    { to: '/patient/invoices', label: 'Invoices & Receipts', icon: Receipt },
     { to: '/patient/chat', label: 'AI Health Assistant', icon: Sparkles, badge: 'AI' },
     { to: '/patient/ambulance', label: 'Ambulance Dispatch', icon: Truck, badge: '24/7' },
     { to: '/patient/blood', label: 'Blood Bank & Requests', icon: Droplet },

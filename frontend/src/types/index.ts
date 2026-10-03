@@ -129,13 +129,35 @@ export interface DoctorSlot {
 export type AppointmentStatus =
   | 'pending'
   | 'confirmed'
+  | 'checked_in'
+  | 'waiting'
+  | 'in_consultation'
   | 'completed'
   | 'cancelled'
   | 'rescheduled'
   | 'no_show'
 
+export type AppointmentType =
+  | 'NEW_CONSULTATION'
+  | 'FOLLOW_UP'
+  | 'PROCEDURE'
+  | 'TELECONSULTATION'
+  | 'EMERGENCY'
+  | 'HOME_VISIT'
+
+export type QueueStatus =
+  | 'NOT_QUEUED'
+  | 'WAITING'
+  | 'CALLED'
+  | 'IN_CONSULTATION'
+  | 'COMPLETED'
+  | 'SKIPPED'
+  | 'CANCELLED'
+
 export interface Appointment {
   id: string
+  clinic_id?: string | null
+  clinic_name?: string | null
   patient_id: string
   patient_name?: string | null
   patient_email?: string | null
@@ -146,11 +168,105 @@ export interface Appointment {
   appointment_date: string
   appointment_time: string
   status: AppointmentStatus
+  appointment_type?: AppointmentType | string
+  token_number?: string | null
+  queue_status?: QueueStatus | string
+  checked_in_at?: string | null
+  consultation_started_at?: string | null
+  consultation_ended_at?: string | null
+  is_walk_in?: boolean
+  parent_appointment_id?: string | null
   reason?: string | null
   notes?: string | null
   cancellation_reason?: string | null
+  cancelled_reason?: string | null
   created_at: string
   updated_at: string
+}
+
+export interface InvoiceItem {
+  id: string
+  item_type: 'CONSULTATION' | 'PROCEDURE' | 'LAB_TEST' | 'MEDICINE' | 'SERVICE' | string
+  description: string
+  quantity: number
+  unit_price: number
+  total_price: number
+}
+
+export interface PaymentRecord {
+  id: string
+  invoice_id: string
+  amount: number
+  payment_method: 'CASH' | 'UPI' | 'CARD' | 'ONLINE_GATEWAY' | 'BANK_TRANSFER' | string
+  transaction_reference?: string | null
+  notes?: string | null
+  created_at: string
+}
+
+export interface RefundRecord {
+  id: string
+  invoice_id: string
+  amount: number
+  reason: string
+  status: string
+  created_at: string
+}
+
+export interface Invoice {
+  id: string
+  invoice_number: string
+  clinic_id: string
+  clinic_name?: string | null
+  clinic_phone?: string | null
+  clinic_address?: string | null
+  patient_id: string
+  patient_name?: string | null
+  patient_phone?: string | null
+  appointment_id?: string | null
+  doctor_id?: string | null
+  doctor_name?: string | null
+  subtotal: number
+  discount_amount: number
+  tax_rate_percent: number
+  tax_amount: number
+  total_amount: number
+  amount_paid: number
+  balance_due: number
+  status: 'PENDING' | 'PARTIALLY_PAID' | 'PAID' | 'REFUNDED' | 'CANCELLED'
+  payment_method?: string | null
+  notes?: string | null
+  items: InvoiceItem[]
+  payments: PaymentRecord[]
+  refunds: RefundRecord[]
+  created_at: string
+  updated_at: string
+}
+
+export interface RevenueSummary {
+  today_revenue: number
+  weekly_revenue: number
+  monthly_revenue: number
+  consultation_revenue: number
+  procedure_revenue: number
+  payment_methods: Record<string, number>
+  pending_dues: number
+  total_refunds: number
+  invoice_count: number
+}
+
+export interface WaitlistEntry {
+  id: string
+  clinic_id?: string | null
+  patient_id: string
+  patient_name?: string | null
+  patient_phone?: string | null
+  doctor_id: string
+  doctor_name?: string | null
+  desired_date: string
+  preferred_time_range?: string | null
+  status: string
+  notes?: string | null
+  created_at: string
 }
 
 export type ReportStatus = 'pending' | 'processing' | 'ready' | 'delivered' | 'failed'

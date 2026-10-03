@@ -42,6 +42,9 @@ class DoctorBase(BaseModel):
     available_days: str = "Monday,Tuesday,Wednesday,Thursday,Friday"
     available_hours_start: str = "09:00"
     available_hours_end: str = "17:00"
+    break_start_time: Optional[str] = "13:00"
+    break_end_time: Optional[str] = "14:00"
+    max_daily_patients: int = 30
     slot_duration_minutes: int = 30
     profile_image: Optional[str] = None
     is_active: bool = True
@@ -61,6 +64,9 @@ class DoctorUpdate(BaseModel):
     available_days: Optional[str] = None
     available_hours_start: Optional[str] = None
     available_hours_end: Optional[str] = None
+    break_start_time: Optional[str] = None
+    break_end_time: Optional[str] = None
+    max_daily_patients: Optional[int] = None
     slot_duration_minutes: Optional[int] = None
     profile_image: Optional[str] = None
     is_active: Optional[bool] = None
@@ -82,7 +88,10 @@ class DoctorResponse(BaseModel):
     available_days: str
     available_hours_start: str
     available_hours_end: str
-    slot_duration_minutes: int
+    break_start_time: Optional[str] = "13:00"
+    break_end_time: Optional[str] = "14:00"
+    max_daily_patients: int = 30
+    slot_duration_minutes: int = 30
     profile_image: Optional[str] = None
     is_active: bool
 

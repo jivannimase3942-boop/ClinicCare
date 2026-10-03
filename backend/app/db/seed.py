@@ -163,6 +163,17 @@ def ensure_tenant_columns(db_engine):
                 ("departments", "clinic_id", "VARCHAR(36)"),
                 ("appointments", "clinic_id", "VARCHAR(36)"),
                 ("reports", "clinic_id", "VARCHAR(36)"),
+                ("appointments", "appointment_type", "VARCHAR(50) DEFAULT 'NEW_CONSULTATION'"),
+                ("appointments", "token_number", "VARCHAR(20)"),
+                ("appointments", "queue_status", "VARCHAR(30) DEFAULT 'NOT_QUEUED'"),
+                ("appointments", "checked_in_at", "DATETIME"),
+                ("appointments", "consultation_started_at", "DATETIME"),
+                ("appointments", "consultation_ended_at", "DATETIME"),
+                ("appointments", "is_walk_in", "BOOLEAN DEFAULT 0"),
+                ("appointments", "parent_appointment_id", "VARCHAR(36)"),
+                ("doctors", "break_start_time", "VARCHAR(10) DEFAULT '13:00'"),
+                ("doctors", "break_end_time", "VARCHAR(10) DEFAULT '14:00'"),
+                ("doctors", "max_daily_patients", "INTEGER DEFAULT 30"),
             ]
             if dialect == "sqlite":
                 for tbl, col, col_type in target_cols:

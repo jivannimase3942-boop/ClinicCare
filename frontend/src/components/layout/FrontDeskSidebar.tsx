@@ -11,6 +11,8 @@ import {
   AlertOctagon,
   LogOut,
   Building2,
+  Ticket,
+  Receipt,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -20,6 +22,8 @@ export const FrontDeskSidebar: React.FC = () => {
 
   const links = [
     { to: '/frontdesk/dashboard', label: 'Reception Overview', icon: LayoutDashboard },
+    { to: '/frontdesk/queue', label: 'OPD Queue & Tokens', icon: Ticket, badge: 'Live' },
+    { to: '/frontdesk/billing', label: 'Billing & Receipts', icon: Receipt },
     { to: '/frontdesk/patients', label: 'Patient Lookup', icon: Users },
     { to: '/frontdesk/appointments', label: 'Appointment Desk', icon: CalendarDays },
     { to: '/frontdesk/doctors', label: 'Doctor Availability', icon: Stethoscope },

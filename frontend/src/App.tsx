@@ -64,6 +64,11 @@ import { DoctorAppointments } from '@/pages/doctor/DoctorAppointments'
 
 // Front Desk Pages
 import { FrontDeskDashboard } from '@/pages/frontdesk/FrontDeskDashboard'
+import { FrontDeskQueue } from '@/pages/frontdesk/FrontDeskQueue'
+
+// Admin Revenue & Patient Invoices
+import { AdminRevenue } from '@/pages/admin/AdminRevenue'
+import { PatientInvoicesPage } from '@/pages/patient/PatientInvoicesPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -108,6 +113,7 @@ export const App: React.FC = () => {
                 <Route path="doctors" element={<DoctorsPage />} />
                 <Route path="appointments" element={<AppointmentsPage />} />
                 <Route path="appointments/book" element={<BookAppointmentPage />} />
+                <Route path="invoices" element={<PatientInvoicesPage />} />
                 <Route path="ambulance" element={<AmbulancePage />} />
                 <Route path="blood" element={<BloodSearchPage />} />
                 <Route path="facilities" element={<FacilitiesPage />} />
@@ -145,6 +151,8 @@ export const App: React.FC = () => {
               >
                 <Route index element={<Navigate to="/frontdesk/dashboard" replace />} />
                 <Route path="dashboard" element={<FrontDeskDashboard />} />
+                <Route path="queue" element={<FrontDeskQueue />} />
+                <Route path="billing" element={<AdminRevenue />} />
                 <Route path="patients" element={<AdminPatients />} />
                 <Route path="appointments" element={<AdminAppointments />} />
                 <Route path="doctors" element={<AdminDoctors />} />
@@ -164,6 +172,7 @@ export const App: React.FC = () => {
               >
                 <Route index element={<Navigate to="/admin/dashboard" replace />} />
                 <Route path="dashboard" element={<AdminDashboard />} />
+                <Route path="revenue" element={<AdminRevenue />} />
                 <Route path="clinic-profile" element={<AdminClinicProfile />} />
                 <Route path="audit-logs" element={<AdminAuditLogs />} />
                 <Route path="emergency" element={<AdminEmergency />} />

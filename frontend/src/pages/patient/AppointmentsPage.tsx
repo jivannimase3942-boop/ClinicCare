@@ -97,17 +97,34 @@ export const AppointmentsPage: React.FC = () => {
           {filtered.map((appt) => (
             <Card key={appt.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 gap-4">
               <div className="flex items-start gap-3">
-                <Stethoscope className="w-6 h-6 text-sky-600 mt-1" />
-                <div>
-                  <h3 className="font-bold text-slate-900">{appt.doctor_name || 'Doctor'}</h3>
+                <Stethoscope className="w-6 h-6 text-sky-600 mt-1 shrink-0" />
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-bold text-slate-900">{appt.doctor_name || 'Doctor'}</h3>
+                    {appt.token_number && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-black bg-teal-100 text-teal-800">
+                        Token #{appt.token_number}
+                      </span>
+                    )}
+                    {appt.queue_status && (
+                      <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-50 text-indigo-700 uppercase">
+                        Queue: {appt.queue_status}
+                      </span>
+                    )}
+                    {appt.appointment_type && (
+                      <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600">
+                        {appt.appointment_type.replace('_', ' ')}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-slate-500">{appt.department_name}</p>
-                  <p className="text-xs text-slate-600 mt-1 font-medium">{formatDate(appt.appointment_date)} at {appt.appointment_time}</p>
+                  <p className="text-xs text-slate-600 font-medium">{formatDate(appt.appointment_date)} at {appt.appointment_time}</p>
                   {appt.reason && <p className="text-xs text-slate-400 mt-0.5">Reason: {appt.reason}</p>}
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <Badge variant={appt.status === 'confirmed' ? 'success' : appt.status === 'cancelled' ? 'danger' : 'default'}>{appt.status}</Badge>
+              <div className="flex items-center gap-2 shrink-0">
+                <Badge variant={appt.status === 'confirmed' ? 'success' : appt.status === 'completed' ? 'primary' : appt.status === 'cancelled' ? 'danger' : 'default'}>{appt.status}</Badge>
                 {appt.status === 'confirmed' && (
                   <>
                     <Button

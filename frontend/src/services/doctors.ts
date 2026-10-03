@@ -23,4 +23,19 @@ export const doctorService = {
     })
     return res.data.data
   },
+
+  updateSchedule: async (doctorId: string, payload: any): Promise<Doctor> => {
+    const res = await api.patch<ApiResponse<Doctor>>(`/doctors/${doctorId}/schedule`, payload)
+    return res.data.data
+  },
+
+  addLeave: async (doctorId: string, payload: { start_date: string; end_date: string; reason?: string }) => {
+    const res = await api.post<ApiResponse<any>>(`/doctors/${doctorId}/leaves`, payload)
+    return res.data.data
+  },
+
+  getLeaves: async (doctorId: string) => {
+    const res = await api.get<ApiResponse<any[]>>(`/doctors/${doctorId}/leaves`)
+    return res.data.data
+  },
 }

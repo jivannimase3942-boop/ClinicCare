@@ -25,8 +25,10 @@ export const BookAppointmentPage: React.FC = () => {
     return d.toISOString().split('T')[0]
   })
   const [selectedTime, setSelectedTime] = useState('')
+  const [appointmentType, setAppointmentType] = useState('NEW_CONSULTATION')
   const [reason, setReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isWaitlisting, setIsWaitlisting] = useState(false)
 
   const { data: departments = [] } = useQuery({
     queryKey: ['departments'],
@@ -66,6 +68,7 @@ export const BookAppointmentPage: React.FC = () => {
         doctor_id: selectedDoctorId,
         appointment_date: selectedDate,
         appointment_time: selectedTime,
+        appointment_type: appointmentType as any,
         reason: reason || undefined,
       })
       await queryClient.invalidateQueries({ queryKey: ['patient-appointments'] })
@@ -78,6 +81,23 @@ export const BookAppointmentPage: React.FC = () => {
     }
   }
 
+  const handleJoinWaitlist = async () => {
+    if (!selectedDoctorId || !selectedDate) return
+    setIsWaitlisting(true)
+    try {
+      await appointmentService.joinWaitlist({
+        doctor_id: selectedDoctorId,
+        desired_date: selectedDate,
+        notes: reason || 'Slots full, requested waitlist',
+      })
+      showToast('Successfully placed on the doctor waitlist! Reception will notify you when a slot opens.', 'success')
+    } catch (err: any) {
+      showToast(err.message || 'Failed to join waitlist', 'error')
+    } finally {
+      setIsWaitlisting(false)
+    }
+  }
+
   const availableSlots = slots.filter((s) => !s.is_booked)
 
   return (
@@ -85,8 +105,8 @@ export const BookAppointmentPage: React.FC = () => {
       <h1 className="text-2xl font-bold">Book Doctor Appointment</h1>
       <form onSubmit={handleBook} className="space-y-6">
         <Card className="space-y-4">
-          <CardTitle>1. Select Doctor</CardTitle>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <CardTitle>1. Select Doctor & Visit Type</CardTitle>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Select label="Department" value={selectedDept} onChange={(e) => { setSelectedDept(e.target.value); setSelectedDoctorId(''); setSelectedTime(''); }}>
               <option value="">All Departments</option>
               {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -94,6 +114,13 @@ export const BookAppointmentPage: React.FC = () => {
             <Select label="Doctor" value={selectedDoctorId} onChange={(e) => { setSelectedDoctorId(e.target.value); setSelectedTime(''); }} required>
               <option value="">Select Doctor...</option>
               {doctors.map((doc) => <option key={doc.id} value={doc.id}>{doc.full_name} ({doc.specialization})</option>)}
+            </Select>
+            <Select label="Consultation Type" value={appointmentType} onChange={(e) => setAppointmentType(e.target.value)} required>
+              <option value="NEW_CONSULTATION">New Consultation</option>
+              <option value="FOLLOW_UP">Follow-up Visit</option>
+              <option value="PROCEDURE">Procedure / Treatment</option>
+              <option value="TELECONSULTATION">Teleconsultation Ready</option>
+              <option value="EMERGENCY">Urgent / Priority</option>
             </Select>
           </div>
         </Card>
@@ -104,7 +131,25 @@ export const BookAppointmentPage: React.FC = () => {
             <Input type="date" label="Date" value={selectedDate} min={new Date().toISOString().split('T')[0]} onChange={(e) => { setSelectedDate(e.target.value); setSelectedTime(''); }} required />
             <div>
               <p className="text-xs font-semibold mb-2">Available Slots ({selectedDate})</p>
-              {loadingSlots ? <p className="text-xs text-slate-400">Loading...</p> : availableSlots.length === 0 ? <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded">No slots on this date.</p> : (
+              {loadingSlots ? (
+                <p className="text-xs text-slate-400">Loading slots...</p>
+              ) : availableSlots.length === 0 ? (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+                  <p className="text-xs font-medium text-amber-800">
+                    No open booking slots available for this doctor on {selectedDate}. All standard slots are filled or the doctor has scheduled leave.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="border-amber-300 text-amber-900 hover:bg-amber-100"
+                    isLoading={isWaitlisting}
+                    onClick={handleJoinWaitlist}
+                  >
+                    Join Waitlist for {selectedDate}
+                  </Button>
+                </div>
+              ) : (
                 <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
                   {availableSlots.map((s) => (
                     <button type="button" key={s.id} onClick={() => setSelectedTime(s.start_time)} className={`py-2 text-xs font-semibold rounded-xl border ${selectedTime === s.start_time ? 'bg-sky-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>

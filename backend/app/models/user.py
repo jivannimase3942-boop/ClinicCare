@@ -99,6 +99,9 @@ class Doctor(Base):
     available_days = Column(String(255), default="Monday,Tuesday,Wednesday,Thursday,Friday", nullable=False)
     available_hours_start = Column(String(10), default="09:00", nullable=False)
     available_hours_end = Column(String(10), default="17:00", nullable=False)
+    break_start_time = Column(String(10), default="13:00", nullable=True)
+    break_end_time = Column(String(10), default="14:00", nullable=True)
+    max_daily_patients = Column(Integer, default=30, nullable=False)
     slot_duration_minutes = Column(Integer, default=30, nullable=False)
     profile_image = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
@@ -110,6 +113,8 @@ class Doctor(Base):
     slots = relationship("DoctorSlot", back_populates="doctor", cascade="all, delete-orphan")
     appointments = relationship("Appointment", back_populates="doctor")
     reports = relationship("Report", back_populates="doctor")
+    leaves = relationship("DoctorLeave", back_populates="doctor", cascade="all, delete-orphan")
+    waitlists = relationship("AppointmentWaitlist", back_populates="doctor", cascade="all, delete-orphan")
 
     @property
     def full_name(self) -> str:

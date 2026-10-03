@@ -1,7 +1,7 @@
 from app.models.clinic import Clinic
 from app.models.audit import AuditLog
 from app.models.user import User, Patient, Doctor, Department, EmailVerification
-from app.models.appointment import Appointment, DoctorSlot
+from app.models.appointment import Appointment, DoctorSlot, DoctorLeave, AppointmentWaitlist
 from app.models.report import Report
 from app.models.feedback import Feedback
 from app.models.ai import AIConversation, AIMessage
@@ -14,6 +14,7 @@ from app.models.blood import BloodBank, BloodInventory, BloodRequest
 from app.models.facility import Facility
 from app.models.visit import VisitHistory
 from app.models.reminder import FollowUpReminder
+from app.models.billing import Invoice, InvoiceItem, Payment, Refund
 
 __all__ = [
     "Clinic",
@@ -25,6 +26,12 @@ __all__ = [
     "EmailVerification",
     "Appointment",
     "DoctorSlot",
+    "DoctorLeave",
+    "AppointmentWaitlist",
+    "Invoice",
+    "InvoiceItem",
+    "Payment",
+    "Refund",
     "Report",
     "Feedback",
     "AIConversation",
