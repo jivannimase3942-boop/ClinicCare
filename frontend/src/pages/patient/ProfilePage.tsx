@@ -21,13 +21,16 @@ import {
   XCircle,
   Clock,
   KeyRound,
+  Activity,
+  CreditCard,
+  Building2,
 } from 'lucide-react'
 
 export const ProfilePage: React.FC = () => {
   const { user, logout } = useAuth()
   const { showToast } = useToast()
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'sessions' | 'consents' | 'privacy'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'sessions' | 'consents' | 'privacy' | 'abdm'>('profile')
 
   // Password state
   const [currentPassword, setCurrentPassword] = useState('')
@@ -53,6 +56,16 @@ export const ProfilePage: React.FC = () => {
 
   // MFA state
   const [mfaStatus, setMfaStatus] = useState<any>({ is_enabled: false, method: 'EMAIL_OTP', configured: true })
+
+  // ABDM / ABHA Interoperability state
+  const [abdmStatus, setAbdmStatus] = useState<any>(null)
+  const [abhaProfile, setAbhaProfile] = useState<any>(null)
+  const [abdmConsents, setAbdmConsents] = useState<any[]>([])
+  const [loadingAbdm, setLoadingAbdm] = useState(false)
+  const [initiatingAbha, setInitiatingAbha] = useState(false)
+  const [abhaAuthMode, setAbhaAuthMode] = useState('MOBILE_OTP')
+  const [abhaIdentifier, setAbhaIdentifier] = useState('')
+  const [abhaAuthResult, setAbhaAuthResult] = useState<any>(null)
 
   const fetchSessions = async () => {
     setLoadingSessions(true)
@@ -100,11 +113,75 @@ export const ProfilePage: React.FC = () => {
     } catch (err: any) {}
   }
 
+  const fetchAbdmData = async () => {
+    setLoadingAbdm(true)
+    try {
+      const [statusRes, profileRes, consentsRes] = await Promise.allSettled([
+        api.get('/abdm/status'),
+        api.get('/abdm/patient/abha'),
+        api.get('/abdm/consents'),
+      ])
+      if (statusRes.status === 'fulfilled' && statusRes.value.data.success) {
+        setAbdmStatus(statusRes.value.data.data)
+      }
+      if (profileRes.status === 'fulfilled' && profileRes.value.data.success) {
+        setAbhaProfile(profileRes.value.data.data)
+      }
+      if (consentsRes.status === 'fulfilled' && consentsRes.value.data.success) {
+        setAbdmConsents(consentsRes.value.data.data)
+      }
+    } catch (err: any) {
+    } finally {
+      setLoadingAbdm(false)
+    }
+  }
+
+  const handleInitiateAbhaAuth = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!abhaIdentifier) {
+      showToast('Please enter mobile number or 14-digit ABHA number', 'error')
+      return
+    }
+    setInitiatingAbha(true)
+    setAbhaAuthResult(null)
+    try {
+      const res = await api.post('/abdm/patient/abha/initiate-auth', {
+        auth_mode: abhaAuthMode,
+        identifier: abhaIdentifier,
+      })
+      if (res.data.success) {
+        setAbhaAuthResult(res.data.data)
+        if (!res.data.data.integration_configured) {
+          showToast('ABDM Sandbox Gateway credentials required', 'info')
+        } else {
+          showToast(res.data.data.message, 'success')
+        }
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'ABHA auth request failed', 'error')
+    } finally {
+      setInitiatingAbha(false)
+    }
+  }
+
+  const handleUpdateAbdmConsent = async (consentId: string, newStatus: string) => {
+    try {
+      const res = await api.post(`/abdm/consents/${consentId}/status?new_status=${newStatus}`)
+      if (res.data.success) {
+        showToast(`ABDM Consent ${newStatus.toLowerCase()} successfully`, 'success')
+        fetchAbdmData()
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Failed to update ABDM consent', 'error')
+    }
+  }
+
   useEffect(() => {
     fetchSessions()
     fetchConsents()
     fetchPrivacy()
     fetchMfa()
+    fetchAbdmData()
   }, [])
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -281,6 +358,17 @@ export const ProfilePage: React.FC = () => {
         >
           <ShieldCheck className="w-4 h-4" />
           Data Privacy & DSAR
+        </button>
+        <button
+          onClick={() => setActiveTab('abdm')}
+          className={`px-4 py-2 rounded-t-xl transition-colors cursor-pointer flex items-center gap-1.5 ${
+            activeTab === 'abdm'
+              ? 'bg-slate-800 text-emerald-400 border-b-2 border-emerald-400 font-semibold'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Activity className="w-4 h-4 text-emerald-400" />
+          ABHA / ABDM
         </button>
       </div>
 
@@ -567,6 +655,192 @@ export const ProfilePage: React.FC = () => {
                     <span className="px-2 py-0.5 rounded font-mono text-[10px] bg-indigo-950/70 text-indigo-300 border border-indigo-800/50">
                       {r.status}
                     </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Tab 5: ABDM / ABHA Interoperability */}
+      {activeTab === 'abdm' && (
+        <div className="space-y-6">
+          {/* Gateway Status Banner */}
+          <div className={`p-4 rounded-xl border flex items-start gap-3 ${
+            abdmStatus?.integration_configured
+              ? 'bg-emerald-950/30 border-emerald-800/40 text-emerald-300'
+              : 'bg-amber-950/30 border-amber-800/40 text-amber-300'
+          }`}>
+            <Activity className="w-5 h-5 shrink-0 mt-0.5 text-emerald-400" />
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm">Ayushman Bharat Digital Mission (ABDM) Gateway Status</span>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-mono border ${
+                  abdmStatus?.integration_configured
+                    ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                    : 'bg-amber-950 text-amber-300 border-amber-800'
+                }`}>
+                  {abdmStatus?.integration_configured ? 'GATEWAY CONNECTED' : 'READINESS STATE'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300">
+                {abdmStatus?.notice || 'ABDM Gateway architecture ready for ABHA identification and HIE-CM FHIR bundle exchange.'}
+              </p>
+              {abdmStatus?.supported_hi_types && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <span className="text-[11px] text-slate-400">Supported Records:</span>
+                  {abdmStatus.supported_hi_types.map((t: string) => (
+                    <span key={t} className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-sky-400">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Patient ABHA Profile Card */}
+          <Card className="space-y-4 bg-slate-900 border-slate-800 text-slate-100">
+            <CardTitle>My ABHA Profile</CardTitle>
+            <p className="text-xs text-slate-400">
+              Your 14-digit Ayushman Bharat Health Account allows seamless electronic transfer of digital prescriptions, lab orders, and discharge summaries across verified healthcare facilities in India.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
+                <span className="text-[11px] text-slate-500 uppercase tracking-wide">ABHA Number</span>
+                <p className="font-mono text-sm text-sky-400 font-semibold">
+                  {abhaProfile?.abha_number || 'Not Linked'}
+                </p>
+              </div>
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
+                <span className="text-[11px] text-slate-500 uppercase tracking-wide">ABHA Address (Health ID)</span>
+                <p className="font-mono text-sm text-emerald-400">
+                  {abhaProfile?.abha_address || 'None'}
+                </p>
+              </div>
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
+                <span className="text-[11px] text-slate-500 uppercase tracking-wide">Verification Status</span>
+                <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
+                  abhaProfile?.verification_status === 'LINKED'
+                    ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                    : 'bg-slate-800 text-slate-300'
+                }`}>
+                  {abhaProfile?.verification_status || 'NOT_LINKED'}
+                </span>
+              </div>
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
+                <span className="text-[11px] text-slate-500 uppercase tracking-wide">KYC Verification</span>
+                <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
+                  abhaProfile?.kyc_verified
+                    ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                    : 'bg-amber-950/60 text-amber-300 border border-amber-800/40'
+                }`}>
+                  {abhaProfile?.kyc_verified ? 'KYC Verified' : 'Pending Verification'}
+                </span>
+              </div>
+            </div>
+
+            {/* ABHA Authentication Initiation */}
+            <div className="pt-2 border-t border-slate-800">
+              <h3 className="text-sm font-semibold text-slate-200 mb-2">Link or Verify ABHA via OTP</h3>
+              <form onSubmit={handleInitiateAbhaAuth} className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Authentication Mode</label>
+                    <select
+                      value={abhaAuthMode}
+                      onChange={(e) => setAbhaAuthMode(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                    >
+                      <option value="MOBILE_OTP">Mobile OTP (Linked Mobile)</option>
+                      <option value="AADHAAR_OTP">Aadhaar OTP (UIDAI Gateway)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Mobile or 14-digit ABHA Number</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., 9876543210 or 14-digit ABHA"
+                      value={abhaIdentifier}
+                      onChange={(e) => setAbhaIdentifier(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                </div>
+
+                <Button size="sm" type="submit" isLoading={initiatingAbha} disabled={initiatingAbha}>
+                  Initiate OTP Authentication
+                </Button>
+              </form>
+
+              {/* Status feedback box */}
+              {abhaAuthResult && (
+                <div className={`mt-3 p-3 rounded-xl border text-xs ${
+                  abhaAuthResult.integration_configured
+                    ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300'
+                    : 'bg-slate-950 border-amber-800/60 text-amber-300'
+                }`}>
+                  <div className="font-semibold">{abhaAuthResult.message}</div>
+                  {!abhaAuthResult.integration_configured && (
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Transparent Sandbox Notice: ClinicCare provides standard ABDM architecture. Active national SMS dispatch requires official sandbox credentials from National Health Authority (NHA).
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* ABDM Electronic Consents */}
+          <Card className="space-y-4 bg-slate-900 border-slate-800 text-slate-100">
+            <CardTitle>ABDM Electronic Consent Artifacts</CardTitle>
+            <p className="text-xs text-slate-400">
+              Electronic consent artifacts authorized through ABDM Consent Manager (CM) for sharing diagnostic reports and prescriptions with authorized doctors.
+            </p>
+
+            <div className="space-y-2 text-xs">
+              {abdmConsents.length === 0 ? (
+                <p className="text-xs text-slate-500 py-3 text-center">No ABDM consent artifacts currently active.</p>
+              ) : (
+                abdmConsents.map((c) => (
+                  <div key={c.id} className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sky-400 font-semibold">{c.consent_request_id}</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                          c.status === 'GRANTED'
+                            ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                            : c.status === 'REQUESTED'
+                            ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                            : 'bg-rose-950 text-rose-300 border border-rose-800'
+                        }`}>
+                          {c.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {c.status === 'REQUESTED' && (
+                          <Button size="sm" variant="primary" onClick={() => handleUpdateAbdmConsent(c.id, 'GRANTED')}>
+                            Grant Consent
+                          </Button>
+                        )}
+                        {c.status === 'GRANTED' && (
+                          <Button size="sm" variant="danger" onClick={() => handleUpdateAbdmConsent(c.id, 'REVOKED')}>
+                            Revoke Consent
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-slate-300">{c.purpose_text}</p>
+                    <div className="flex flex-wrap gap-1 text-[10px] text-slate-400">
+                      <span>Records:</span>
+                      {c.hi_types && c.hi_types.map((ht: string) => (
+                        <span key={ht} className="px-1.5 py-0.5 bg-slate-900 border border-slate-800 rounded text-slate-300">
+                          {ht}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 ))
               )}

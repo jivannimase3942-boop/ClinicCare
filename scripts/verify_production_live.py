@@ -381,6 +381,45 @@ def run():
             assert pr_res.getcode() == 200
         test_check("Phase 4 Admin Security Events & Consent Oversight", _phase4_admin_security_events_and_consents)
 
+    # 6d. Phase 4 Milestone 3: ABDM / ABHA Interoperability Readiness
+    safe_print("\n--- 6d. Testing Phase 4 ABDM / ABHA Interoperability Readiness ---")
+    def _phase4_abdm_gateway_status():
+        res = req(f"{BACKEND}/api/abdm/status")
+        assert res.getcode() == 200
+        body = json.loads(res.read().decode("utf-8"))
+        assert body.get("success") is True
+        data = body.get("data", {})
+        assert "integration_configured" in data
+        assert "supported_hi_types" in data
+        assert len(data["supported_hi_types"]) >= 3
+        safe_print(f"       Gateway status: configured={data['integration_configured']}, sandbox={data.get('sandbox_mode')}")
+    test_check("Phase 4 ABDM Gateway Status & Disclosure", _phase4_abdm_gateway_status)
+
+    if "Patient" in tokens:
+        def _phase4_patient_abha():
+            hdr = {"Authorization": f"Bearer {tokens['Patient']}"}
+            res = req(f"{BACKEND}/api/abdm/patient/abha", headers=hdr)
+            assert res.getcode() == 200
+            body = json.loads(res.read().decode("utf-8"))
+            assert body.get("success") is True
+            # Auth initiate check (must honestly state gateway unconfigured without faking government IDs)
+            auth_res = req(f"{BACKEND}/api/abdm/patient/abha/initiate-auth", method="POST", data={
+                "auth_mode": "MOBILE_OTP",
+                "identifier": "+919876543210"
+            }, headers=hdr)
+            assert auth_res.getcode() == 200
+            auth_body = json.loads(auth_res.read().decode("utf-8")).get("data", {})
+            assert auth_body.get("integration_configured") is False or auth_body.get("transaction_id") is not None
+            # Consents list
+            c_res = req(f"{BACKEND}/api/abdm/consents", headers=hdr)
+            assert c_res.getcode() == 200
+        test_check("Phase 4 Patient ABHA Profile & Auth Integrity", _phase4_patient_abha)
+
+    def _phase4_facility_registry():
+        res = req(f"{BACKEND}/api/abdm/facility-registry")
+        assert res.getcode() == 200
+    test_check("Phase 4 HFR Facility Registry Access", _phase4_facility_registry)
+
     # 7. Frontend Bundle & API Resolution
     safe_print("\n--- 7. Testing Frontend Bundle & API Resolution ---")
     def _test_bundle():

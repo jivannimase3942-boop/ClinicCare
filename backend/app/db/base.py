@@ -22,6 +22,13 @@ from app.models.lab import LabTest, LabOrder, LabSample, LabResult, LabReport
 from app.models.pharmacy import Supplier, StockBatch, StockTransaction
 from app.models.organization import Organization, Branch
 from app.models.security_privacy import UserSession, SecurityEvent, PatientConsent, PrivacyRequest, MFAConfig
+from app.models.abdm import (
+    ABHAProfile,
+    ABDMConsentArtifact,
+    HealthInformationExchangeRecord,
+    FacilityRegistryProfile,
+    ProfessionalRegistryProfile,
+)
 
 
 

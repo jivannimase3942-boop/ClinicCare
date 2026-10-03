@@ -82,6 +82,14 @@ class Settings(BaseSettings):
     N8N_BASIC_AUTH_USER: str = "admin"
     AUTOMATED_WORKFLOW_KEY: str = Field(default_factory=lambda: "cliniccare-internal-workflow-key-v1")
 
+    # ABDM / ABHA Interoperability Configuration
+    ABDM_CLIENT_ID: Optional[str] = None
+    ABDM_CLIENT_SECRET: Optional[str] = None
+    ABDM_GATEWAY_URL: str = "https://dev.abdm.gov.in/gateway"
+    ABDM_FACILITY_ID: Optional[str] = None
+    ABDM_ENCRYPTION_PUBLIC_KEY: Optional[str] = None
+    ABDM_ENCRYPTION_PRIVATE_KEY: Optional[str] = None
+
     model_config = SettingsConfigDict(
         env_file=os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env"),
         env_file_encoding="utf-8",
