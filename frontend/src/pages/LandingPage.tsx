@@ -97,6 +97,14 @@ export const LandingPage: React.FC = () => {
             <Button
               size="lg"
               variant="outline"
+              onClick={() => navigate('/onboard-clinic')}
+              className="px-6 py-3 font-semibold bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100"
+            >
+              Onboard Your Clinic
+            </Button>
+            <Button
+              size="lg"
+              variant="outline"
               onClick={() => navigate('/register')}
               rightIcon={<ArrowRight className="w-4 h-4" />}
               className="px-6 py-3 font-semibold bg-white border-slate-300 text-slate-700 hover:bg-slate-50"

@@ -61,6 +61,7 @@ def book_appointment(
             else:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No patient profile found for booking")
 
+        user_clinic = current_user.clinic_id if current_user else None
         app = appointment_service.book_appointment(
             db=db,
             patient_id=target_patient_id,
@@ -69,6 +70,7 @@ def book_appointment(
             appointment_time=data.appointment_time,
             reason=data.reason,
             notes=data.notes,
+            clinic_id=user_clinic,
         )
         return ApiResponse(success=True, message="Appointment booked successfully", data=app)
     except ValueError as e:
@@ -134,6 +136,11 @@ def get_appointment(
         if not current_user.doctor_profile or app.doctor_id != current_user.doctor_profile.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot view another doctor's appointment")
 
+    # Clinic tenant isolation check: Staff cannot access appointment belonging to another clinic
+    if current_user and current_user.role in ["ADMIN", "FRONT_DESK"]:
+        if current_user.role != "SUPER_ADMIN" and current_user.clinic_id and app.clinic_id and current_user.clinic_id != app.clinic_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot access appointment of another clinic")
+
     return ApiResponse(success=True, data=app)
 
 
@@ -150,6 +157,9 @@ def _handle_reschedule(
     if current_user and current_user.role == "PATIENT":
         if not current_user.patient_profile or app.patient_id != current_user.patient_profile.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot modify another patient's appointment")
+    elif current_user and current_user.role in ["ADMIN", "FRONT_DESK"]:
+        if current_user.role != "SUPER_ADMIN" and current_user.clinic_id and app.clinic_id and current_user.clinic_id != app.clinic_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot reschedule appointment of another clinic")
     elif current_user and current_user.role not in ["ADMIN", "FRONT_DESK", "DOCTOR"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
@@ -202,6 +212,9 @@ def _handle_cancel(
     if current_user and current_user.role == "PATIENT":
         if not current_user.patient_profile or app.patient_id != current_user.patient_profile.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot cancel another patient's appointment")
+    elif current_user and current_user.role in ["ADMIN", "FRONT_DESK"]:
+        if current_user.role != "SUPER_ADMIN" and current_user.clinic_id and app.clinic_id and current_user.clinic_id != app.clinic_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot cancel appointment of another clinic")
     elif current_user and current_user.role not in ["ADMIN", "FRONT_DESK", "DOCTOR"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 

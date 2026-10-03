@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 from datetime import date, datetime
 from pydantic import BaseModel, EmailStr, Field
 
@@ -76,6 +76,9 @@ class UserResponse(BaseModel):
     created_at: datetime
     patient_profile: Optional[PatientProfileResponse] = None
     doctor_profile: Optional[DoctorProfileResponse] = None
+    clinic_id: Optional[str] = None
+    clinic_name: Optional[str] = None
+    permissions: Optional[List[str]] = None
 
     model_config = {"from_attributes": True}
 

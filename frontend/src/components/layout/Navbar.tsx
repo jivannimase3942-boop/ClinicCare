@@ -61,7 +61,14 @@ export const Navbar: React.FC = () => {
               </Button>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/onboard-clinic')}
+                className="hidden sm:inline-flex text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 font-semibold"
+              >
+                Register Clinic
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"

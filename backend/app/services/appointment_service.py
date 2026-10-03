@@ -5,6 +5,7 @@ from sqlalchemy import and_, or_
 from app.models.appointment import Appointment, DoctorSlot
 from app.models.user import Doctor, Patient, User
 from app.schemas.appointment import AppointmentCreate, AppointmentReschedule, AppointmentResponse
+from app.services.audit_service import audit_service
 
 
 class AppointmentService:
@@ -16,8 +17,12 @@ class AppointmentService:
         doc_spec = app.doctor.specialization if app.doctor else None
         dept_name = app.doctor.department.name if app.doctor and app.doctor.department else None
 
+        clinic_name = app.clinic.name if app.clinic else None
+
         return AppointmentResponse(
             id=app.id,
+            clinic_id=app.clinic_id,
+            clinic_name=clinic_name,
             patient_id=app.patient_id,
             patient_name=patient_name,
             patient_phone=patient_phone,
@@ -45,6 +50,7 @@ class AppointmentService:
         appointment_time: str,
         reason: Optional[str] = None,
         notes: Optional[str] = None,
+        clinic_id: Optional[str] = None,
     ) -> AppointmentResponse:
         # 1. Validate doctor
         doctor = db.query(Doctor).filter(Doctor.id == doctor_id, Doctor.is_active == True).first()
@@ -75,8 +81,16 @@ class AppointmentService:
         if patient_conflict:
             raise ValueError("You already have an active appointment booked at this time")
 
-        # 5. Create appointment
+        # 5. Resolve tenant clinic
+        resolved_clinic = (
+            clinic_id
+            or (doctor.user.clinic_id if doctor.user else None)
+            or (doctor.department.clinic_id if doctor.department else None)
+        )
+
+        # 6. Create appointment
         appointment = Appointment(
+            clinic_id=resolved_clinic,
             patient_id=patient_id,
             doctor_id=doctor_id,
             department_id=doctor.department_id,
@@ -88,7 +102,7 @@ class AppointmentService:
         )
         db.add(appointment)
 
-        # 6. Mark slot as booked if slot exists
+        # 7. Mark slot as booked if slot exists
         slot = db.query(DoctorSlot).filter(
             DoctorSlot.doctor_id == doctor_id,
             DoctorSlot.slot_date == appointment_date,
@@ -99,6 +113,23 @@ class AppointmentService:
 
         db.commit()
         db.refresh(appointment)
+
+        # 8. Record audit log
+        audit_service.log_action(
+            db=db,
+            action="APPOINTMENT_CREATE",
+            clinic_id=resolved_clinic,
+            entity_type="Appointment",
+            entity_id=appointment.id,
+            details={
+                "patient_id": patient_id,
+                "doctor_id": doctor_id,
+                "appointment_date": str(appointment_date),
+                "appointment_time": appointment_time,
+                "reason": reason,
+            }
+        )
+
         return AppointmentService._format_appointment(appointment)
 
     @staticmethod

@@ -20,6 +20,7 @@ import {
   Siren,
   BellRing,
   Building,
+  Hospital,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -29,6 +30,8 @@ export const AdminSidebar: React.FC = () => {
 
   const links = [
     { to: '/admin/dashboard', label: 'Dashboard Overview', icon: LayoutDashboard },
+    { to: '/admin/clinic-profile', label: 'Clinic Settings & Profile', icon: Hospital },
+    { to: '/admin/audit-logs', label: 'Security & Audit Logs', icon: ShieldCheck, badge: 'Protected' },
     { to: '/admin/emergency', label: 'Emergency & Triage', icon: Siren, badge: 'Live' },
     { to: '/admin/ambulances', label: 'Ambulance Fleet', icon: Truck },
     { to: '/admin/blood-bank', label: 'Blood Bank & Requests', icon: Droplet },
@@ -50,14 +53,19 @@ export const AdminSidebar: React.FC = () => {
     <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 min-h-[calc(100vh-4rem)] border-r border-slate-800">
       {/* Header Info */}
       <div className="p-4 border-b border-slate-800 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sky-400 flex items-center justify-center font-bold text-sm shrink-0">
-          <ShieldCheck className="w-5 h-5" />
+        <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-sm shrink-0">
+          <Hospital className="w-5 h-5" />
         </div>
         <div className="overflow-hidden">
           <h4 className="text-sm font-bold text-white truncate">{user?.full_name}</h4>
-          <span className="text-[10px] uppercase tracking-wider font-semibold text-sky-400 bg-sky-950/60 px-2 py-0.5 rounded border border-sky-800/40">
-            {user?.role}
-          </span>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <span className="text-[9px] uppercase tracking-wider font-semibold text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/40">
+              {user?.role}
+            </span>
+            <span className="text-[10px] text-slate-400 truncate max-w-[90px]" title={user?.clinic_name || 'ClinicCare Central'}>
+              {user?.clinic_name || 'ClinicCare Central'}
+            </span>
+          </div>
         </div>
       </div>
 

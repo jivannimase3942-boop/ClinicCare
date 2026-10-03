@@ -9,6 +9,7 @@ class Report(Base):
     __tablename__ = "reports"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
+    clinic_id = Column(String(36), ForeignKey("clinics.id", ondelete="CASCADE"), nullable=True, index=True)
     patient_id = Column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
     doctor_id = Column(String(36), ForeignKey("doctors.id", ondelete="SET NULL"), nullable=True)
     title = Column(String(255), nullable=False)
@@ -20,5 +21,6 @@ class Report(Base):
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
+    clinic = relationship("Clinic")
     patient = relationship("Patient", back_populates="reports")
     doctor = relationship("Doctor", back_populates="reports")

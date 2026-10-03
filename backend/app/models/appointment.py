@@ -27,6 +27,7 @@ class Appointment(Base):
     __tablename__ = "appointments"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
+    clinic_id = Column(String(36), ForeignKey("clinics.id", ondelete="CASCADE"), nullable=True, index=True)
     patient_id = Column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
     doctor_id = Column(String(36), ForeignKey("doctors.id", ondelete="RESTRICT"), nullable=False, index=True)
     department_id = Column(String(36), ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
@@ -39,6 +40,7 @@ class Appointment(Base):
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
+    clinic = relationship("Clinic", back_populates="appointments")
     patient = relationship("Patient", back_populates="appointments")
     doctor = relationship("Doctor", back_populates="appointments")
     department = relationship("Department", back_populates="appointments")

@@ -19,6 +19,8 @@ import { RoleSelectPage } from '@/pages/auth/RoleSelectPage'
 import { PatientRegisterPage } from '@/pages/auth/PatientRegisterPage'
 import { DoctorRegisterPage } from '@/pages/auth/DoctorRegisterPage'
 import { FrontDeskRegisterPage } from '@/pages/auth/FrontDeskRegisterPage'
+import { ClinicOnboardingPage } from '@/pages/onboarding/ClinicOnboardingPage'
+import { ClinicPublicPage } from '@/pages/clinic/ClinicPublicPage'
 
 // Patient Pages
 import { PatientDashboard } from '@/pages/patient/PatientDashboard'
@@ -53,6 +55,8 @@ import { AdminBloodBank } from '@/pages/admin/AdminBloodBank'
 import { AdminFacilities } from '@/pages/admin/AdminFacilities'
 import { AdminEmergency } from '@/pages/admin/AdminEmergency'
 import { AdminReminders } from '@/pages/admin/AdminReminders'
+import { AdminAuditLogs } from '@/pages/admin/AdminAuditLogs'
+import { AdminClinicProfile } from '@/pages/admin/AdminClinicProfile'
 
 // Doctor Pages
 import { DoctorDashboard } from '@/pages/doctor/DoctorDashboard'
@@ -86,6 +90,8 @@ export const App: React.FC = () => {
                 <Route path="/register/patient" element={<PatientRegisterPage />} />
                 <Route path="/register/doctor" element={<DoctorRegisterPage />} />
                 <Route path="/register/frontdesk" element={<FrontDeskRegisterPage />} />
+                <Route path="/onboard-clinic" element={<ClinicOnboardingPage />} />
+                <Route path="/clinic/:slug" element={<ClinicPublicPage />} />
               </Route>
 
               {/* Patient Routes */}
@@ -158,6 +164,8 @@ export const App: React.FC = () => {
               >
                 <Route index element={<Navigate to="/admin/dashboard" replace />} />
                 <Route path="dashboard" element={<AdminDashboard />} />
+                <Route path="clinic-profile" element={<AdminClinicProfile />} />
+                <Route path="audit-logs" element={<AdminAuditLogs />} />
                 <Route path="emergency" element={<AdminEmergency />} />
                 <Route path="ambulances" element={<AdminAmbulances />} />
                 <Route path="blood-bank" element={<AdminBloodBank />} />

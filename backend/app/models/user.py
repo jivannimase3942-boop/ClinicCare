@@ -22,11 +22,13 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=False)
     phone = Column(String(50), nullable=True, index=True)
-    role = Column(String(50), nullable=False, default="PATIENT", index=True)  # PATIENT, DOCTOR, ADMIN, FRONT_DESK
+    role = Column(String(50), nullable=False, default="PATIENT", index=True)  # PATIENT, DOCTOR, ADMIN, FRONT_DESK, etc.
+    clinic_id = Column(String(36), ForeignKey("clinics.id", ondelete="SET NULL"), nullable=True, index=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
+    clinic = relationship("Clinic", back_populates="users")
     patient_profile = relationship("Patient", back_populates="user", uselist=False, cascade="all, delete-orphan")
     doctor_profile = relationship("Doctor", back_populates="user", uselist=False, cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
@@ -70,13 +72,15 @@ class Department(Base):
     __tablename__ = "departments"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    name = Column(String(150), unique=True, nullable=False)
+    clinic_id = Column(String(36), ForeignKey("clinics.id", ondelete="CASCADE"), nullable=True, index=True)
+    name = Column(String(150), nullable=False)
     description = Column(Text, nullable=True)
     icon = Column(String(100), default="Activity", nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
+    clinic = relationship("Clinic", back_populates="departments")
     doctors = relationship("Doctor", back_populates="department")
     appointments = relationship("Appointment", back_populates="department")
 

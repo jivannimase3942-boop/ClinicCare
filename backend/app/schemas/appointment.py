@@ -36,6 +36,8 @@ class AppointmentStatusUpdate(BaseModel):
 
 class AppointmentResponse(BaseModel):
     id: str
+    clinic_id: Optional[str] = None
+    clinic_name: Optional[str] = None
     patient_id: str
     patient_name: Optional[str] = None
     patient_phone: Optional[str] = None

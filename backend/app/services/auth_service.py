@@ -10,6 +10,7 @@ from typing import Optional, Tuple, Dict, Any, List
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import verify_password, get_password_hash, create_access_token
+from app.core.roles import get_permissions_for_role
 from app.models.user import User, Patient, Doctor, Department, EmailVerification
 from app.schemas.auth import (
     UserRegister,
@@ -475,6 +476,9 @@ class AuthService:
                 profile_image=doc.profile_image,
             )
 
+        clinic_name = user.clinic.name if user.clinic else None
+        perms = get_permissions_for_role(user.role)
+
         return UserResponse(
             id=user.id,
             email=user.email,
@@ -485,6 +489,9 @@ class AuthService:
             created_at=user.created_at,
             patient_profile=patient_resp,
             doctor_profile=doctor_resp,
+            clinic_id=user.clinic_id,
+            clinic_name=clinic_name,
+            permissions=perms,
         )
 
 

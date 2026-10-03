@@ -5,8 +5,11 @@ from datetime import date, datetime, timedelta, timezone
 # Add parent directory to sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from sqlalchemy import text
 from app.db.session import engine, SessionLocal, Base
 from app.core.security import get_password_hash
+from app.models.clinic import Clinic
+from app.models.audit import AuditLog
 from app.models.user import User, Patient, Doctor, Department
 from app.models.appointment import Appointment, DoctorSlot
 from app.models.report import Report
@@ -20,6 +23,8 @@ from app.models.blood import BloodBank, BloodInventory
 from app.models.facility import Facility
 from app.models.visit import VisitHistory
 from app.models.reminder import FollowUpReminder
+from app.services.clinic_service import clinic_service
+from app.services.audit_service import audit_service
 
 
 
@@ -148,14 +153,70 @@ def ensure_demo_accounts(db: SessionLocal):
     db.commit()
 
 
+def ensure_tenant_columns(db_engine):
+    """Ensures multi-tenant columns exist on legacy database tables safely."""
+    try:
+        with db_engine.connect() as conn:
+            dialect = db_engine.dialect.name
+            target_cols = [
+                ("users", "clinic_id", "VARCHAR(36)"),
+                ("departments", "clinic_id", "VARCHAR(36)"),
+                ("appointments", "clinic_id", "VARCHAR(36)"),
+                ("reports", "clinic_id", "VARCHAR(36)"),
+            ]
+            if dialect == "sqlite":
+                for tbl, col, col_type in target_cols:
+                    try:
+                        res = conn.execute(text(f"PRAGMA table_info({tbl})")).fetchall()
+                        cols = [r[1] for r in res]
+                        if cols and col not in cols:
+                            conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} {col_type}"))
+                            conn.commit()
+                    except Exception as err:
+                        print(f"[Seed Migration Notice] {tbl}.{col}: {err}")
+            elif dialect == "postgresql":
+                for tbl, col, col_type in target_cols:
+                    try:
+                        conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS {col} {col_type}"))
+                        conn.commit()
+                    except Exception as err:
+                        print(f"[Seed PG Migration Notice] {tbl}.{col}: {err}")
+    except Exception as e:
+        print(f"[Seed] Column check warning: {e}")
+
+
 def seed_database():
     print("Initializing database tables...")
+    ensure_tenant_columns(engine)
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
 
     try:
+        # Guarantee default central tenant exists
+        default_clinic = clinic_service.get_or_create_default_clinic(db)
+
         # Guarantee demo accounts exist and are functional
         ensure_demo_accounts(db)
+
+        # Associate existing entities without clinic_id with default tenant
+        db.query(User).filter(User.clinic_id == None).update({User.clinic_id: default_clinic.id}, synchronize_session=False)
+        db.query(Department).filter(Department.clinic_id == None).update({Department.clinic_id: default_clinic.id}, synchronize_session=False)
+        db.query(Appointment).filter(Appointment.clinic_id == None).update({Appointment.clinic_id: default_clinic.id}, synchronize_session=False)
+        db.query(Report).filter(Report.clinic_id == None).update({Report.clinic_id: default_clinic.id}, synchronize_session=False)
+        db.commit()
+
+        # Seed initial system audit entry if empty
+        if not db.query(AuditLog).first():
+            admin_u = db.query(User).filter(User.email == "admin@hospital.com").first()
+            audit_service.log_action(
+                db=db,
+                action="SYSTEM_INIT",
+                user=admin_u,
+                clinic_id=default_clinic.id,
+                entity_type="Clinic",
+                entity_id=default_clinic.id,
+                details={"message": "ClinicCare SaaS Foundation Phase 1 Initialized", "default_clinic": default_clinic.name}
+            )
 
         # Check if already seeded
         admin_check = db.query(User).filter(User.email == "admin@hospital.com").first()

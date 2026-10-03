@@ -123,10 +123,37 @@ def get_optional_patient(
 
 def require_roles(allowed_roles: List[str]):
     def role_checker(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role not in allowed_roles:
+        if current_user.role not in allowed_roles and current_user.role != "SUPER_ADMIN":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Access denied. Requires one of roles: {', '.join(allowed_roles)}",
             )
         return current_user
     return role_checker
+
+
+def require_permission(required_permission: str):
+    from app.core.roles import has_permission
+    def permission_checker(current_user: User = Depends(get_current_user)) -> User:
+        if not has_permission(current_user.role, required_permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied. Missing permission: '{required_permission}'",
+            )
+        return current_user
+    return permission_checker
+
+
+def get_current_tenant_clinic(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    from app.services.clinic_service import clinic_service
+    clinic_id = current_user.clinic_id
+    if not clinic_id:
+        return clinic_service.get_or_create_default_clinic(db)
+    clinic = clinic_service.get_clinic_by_id(db, clinic_id)
+    if not clinic:
+        return clinic_service.get_or_create_default_clinic(db)
+    return clinic
+

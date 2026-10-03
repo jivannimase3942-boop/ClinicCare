@@ -27,6 +27,8 @@ from app.services.facility_service import facility_service
 from app.services.patient_service import patient_service
 from app.services.reminder_service import reminder_service
 from app.services.emergency_service import emergency_service
+from app.services.audit_service import audit_service
+from app.services.clinic_service import clinic_service
 from app.schemas.admin import AdminDashboardStats, ErrorLogResponse, ErrorLogCreate
 from app.schemas.doctor import DoctorResponse, DepartmentResponse, DepartmentCreate, DoctorCreate
 from app.schemas.appointment import AppointmentResponse, AppointmentStatusUpdate
@@ -112,7 +114,12 @@ def list_pending_staff(db: Session = Depends(get_db)):
 
 
 @router.post("/approve-staff/{user_id}", response_model=ApiResponse[Dict[str, Any]], dependencies=[strict_admin_auth])
-def approve_staff(user_id: str, new_role: Optional[str] = Query(None), db: Session = Depends(get_db)):
+def approve_staff(
+    user_id: str,
+    new_role: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -121,6 +128,15 @@ def approve_staff(user_id: str, new_role: Optional[str] = Query(None), db: Sessi
     try:
         from app.services.auth_service import auth_service
         approved = auth_service.approve_pending_staff(db, user_id, resolved_role)
+        audit_service.log_action(
+            db=db,
+            action="STAFF_APPROVED",
+            user=current_user,
+            clinic_id=current_user.clinic_id,
+            entity_type="User",
+            entity_id=approved.id,
+            details={"approved_email": approved.email, "assigned_role": approved.role}
+        )
         return ApiResponse(
             success=True,
             message=f"Staff account approved. Role set to {approved.role}.",
@@ -263,4 +279,44 @@ def trigger_scan_feedback(db: Session = Depends(get_db)):
 def trigger_scan_reports(db: Session = Depends(get_db)):
     result = report_service.scan_and_send_report_notifications(db)
     return ApiResponse(success=True, message="Reports scan completed", data=result)
+
+
+@router.get("/audit-logs", response_model=ApiResponse[List[Dict[str, Any]]], dependencies=[strict_admin_auth])
+def list_audit_logs(
+    action: Optional[str] = Query(None),
+    entity_type: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Enforce clinic tenant isolation: clinic admins only see their own clinic logs unless SUPER_ADMIN
+    clinic_filter = current_user.clinic_id if current_user.role != "SUPER_ADMIN" else None
+    logs = audit_service.get_logs(
+        db=db,
+        clinic_id=clinic_filter,
+        action=action,
+        entity_type=entity_type,
+        limit=limit,
+        offset=offset,
+    )
+    data = [
+        {
+            "id": l.id,
+            "clinic_id": l.clinic_id,
+            "user_id": l.user_id,
+            "user_email": l.user_email,
+            "user_role": l.user_role,
+            "action": l.action,
+            "entity_type": l.entity_type,
+            "entity_id": l.entity_id,
+            "details": l.details,
+            "ip_address": l.ip_address,
+            "user_agent": l.user_agent,
+            "created_at": l.created_at.isoformat() if l.created_at else None,
+        }
+        for l in logs
+    ]
+    return ApiResponse(success=True, data=data)
+
 

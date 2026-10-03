@@ -1,3 +1,5 @@
+from app.models.clinic import Clinic
+from app.models.audit import AuditLog
 from app.models.user import User, Patient, Doctor, Department, EmailVerification
 from app.models.appointment import Appointment, DoctorSlot
 from app.models.report import Report
@@ -14,6 +16,8 @@ from app.models.visit import VisitHistory
 from app.models.reminder import FollowUpReminder
 
 __all__ = [
+    "Clinic",
+    "AuditLog",
     "User",
     "Patient",
     "Doctor",

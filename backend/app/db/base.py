@@ -1,4 +1,6 @@
 from app.db.session import Base
+from app.models.clinic import Clinic
+from app.models.audit import AuditLog
 from app.models.user import User, Patient, Doctor, Department
 from app.models.appointment import Appointment, DoctorSlot
 from app.models.report import Report

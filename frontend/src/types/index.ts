@@ -1,4 +1,18 @@
-export type UserRole = 'PATIENT' | 'DOCTOR' | 'ADMIN' | 'FRONT_DESK' | 'PENDING_DOCTOR' | 'PENDING_FRONT_DESK'
+export type UserRole =
+  | 'PATIENT'
+  | 'DOCTOR'
+  | 'ADMIN'
+  | 'FRONT_DESK'
+  | 'PENDING_DOCTOR'
+  | 'PENDING_FRONT_DESK'
+  | 'SUPER_ADMIN'
+  | 'BRANCH_ADMIN'
+  | 'NURSE'
+  | 'PHARMACIST'
+  | 'LAB_TECHNICIAN'
+  | 'RADIOLOGIST'
+  | 'ACCOUNTANT'
+  | 'AMBULANCE_COORDINATOR'
 
 export interface PatientProfile {
   id: string
@@ -34,6 +48,43 @@ export interface User {
   created_at: string
   patient_profile?: PatientProfile | null
   doctor_profile?: DoctorProfile | null
+  clinic_id?: string | null
+  clinic_name?: string | null
+  permissions?: string[] | null
+}
+
+export interface Clinic {
+  id: string
+  name: string
+  slug: string
+  phone?: string | null
+  email?: string | null
+  address?: string | null
+  city?: string | null
+  state?: string | null
+  pincode?: string | null
+  country?: string | null
+  operating_hours: string
+  consultation_fee_default: number
+  is_active: boolean
+  settings_json?: string | null
+  created_at: string
+  updated_at?: string
+}
+
+export interface AuditLog {
+  id: string
+  clinic_id?: string | null
+  user_id?: string | null
+  user_email?: string | null
+  user_role?: string | null
+  action: string
+  entity_type?: string | null
+  entity_id?: string | null
+  details?: string | null
+  ip_address?: string | null
+  user_agent?: string | null
+  created_at: string
 }
 
 export interface Department {
