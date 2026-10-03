@@ -55,3 +55,12 @@ class AIConversationResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+
+class AIConsultationDraftRequest(BaseModel):
+    patient_id: str
+    raw_notes: str
+
+
+class AIReportSummaryRequest(BaseModel):
+    order_id: str
+

@@ -149,4 +149,136 @@ class AdminService:
         return log
 
 
+    @staticmethod
+    def get_clinical_analytics(db: Session, clinic_id: str) -> Dict[str, Any]:
+        """
+        Computes tenant-scoped operational analytics across Patients, Doctors, Lab, and Pharmacy.
+        """
+        today = date.today()
+        thirty_days_ago = today - timedelta(days=30)
+
+        # 1. Patient Analytics
+        from app.models.clinical import ConsultationRecord
+        from app.models.lab import LabOrder
+        from app.models.pharmacy import StockBatch
+        from app.models.billing import Invoice, InvoiceItem
+
+        # Patients connected to clinic
+        total_patients = db.query(func.count(Patient.id)).join(User, Patient.user_id == User.id).filter(
+            User.clinic_id == clinic_id
+        ).scalar() or 0
+
+        new_patients_30d = db.query(func.count(Patient.id)).join(User, Patient.user_id == User.id).filter(
+            User.clinic_id == clinic_id,
+            Patient.created_at >= thirty_days_ago
+        ).scalar() or 0
+
+        total_apps = db.query(func.count(Appointment.id)).filter(Appointment.clinic_id == clinic_id).scalar() or 0
+        completed_apps = db.query(func.count(Appointment.id)).filter(
+            Appointment.clinic_id == clinic_id,
+            Appointment.status == "completed"
+        ).scalar() or 0
+        cancelled_apps = db.query(func.count(Appointment.id)).filter(
+            Appointment.clinic_id == clinic_id,
+            Appointment.status == "cancelled"
+        ).scalar() or 0
+        noshow_apps = db.query(func.count(Appointment.id)).filter(
+            Appointment.clinic_id == clinic_id,
+            Appointment.status == "no_show"
+        ).scalar() or 0
+
+        # 2. Doctor Analytics
+        total_docs = db.query(func.count(Doctor.id)).join(User, Doctor.user_id == User.id).filter(
+            User.clinic_id == clinic_id,
+            Doctor.is_active == True
+        ).scalar() or 0
+
+        doc_consults = db.query(
+            Doctor.id,
+            func.count(Appointment.id)
+        ).join(Appointment, Appointment.doctor_id == Doctor.id).filter(
+            Appointment.clinic_id == clinic_id,
+            Appointment.status == "completed"
+        ).group_by(Doctor.id).all()
+
+        doctor_utilization = []
+        for doc_id, c_count in doc_consults:
+            doc_obj = db.query(Doctor).filter(Doctor.id == doc_id).first()
+            d_name = doc_obj.user.full_name if (doc_obj and doc_obj.user) else "Doctor"
+            doctor_utilization.append({"doctor_name": d_name, "consultations_completed": c_count})
+
+        # 3. Lab Analytics
+        total_lab_orders = db.query(func.count(LabOrder.id)).filter(LabOrder.clinic_id == clinic_id).scalar() or 0
+        pending_lab_orders = db.query(func.count(LabOrder.id)).filter(
+            LabOrder.clinic_id == clinic_id,
+            LabOrder.status.in_(["ORDERED", "SAMPLE_COLLECTED", "PROCESSING", "RESULT_READY"])
+        ).scalar() or 0
+        released_lab_reports = db.query(func.count(LabOrder.id)).filter(
+            LabOrder.clinic_id == clinic_id,
+            LabOrder.status == "VALIDATED"
+        ).scalar() or 0
+
+        # 4. Pharmacy Analytics
+        active_batches = db.query(func.count(StockBatch.id)).filter(
+            StockBatch.clinic_id == clinic_id,
+            StockBatch.is_active == True
+        ).scalar() or 0
+
+        low_stock_count = db.query(func.count(StockBatch.id)).filter(
+            StockBatch.clinic_id == clinic_id,
+            StockBatch.is_active == True,
+            StockBatch.current_quantity <= StockBatch.reorder_threshold
+        ).scalar() or 0
+
+        expired_count = db.query(func.count(StockBatch.id)).filter(
+            StockBatch.clinic_id == clinic_id,
+            StockBatch.is_active == True,
+            StockBatch.current_quantity > 0,
+            StockBatch.expiry_date < today
+        ).scalar() or 0
+
+        near_expiry_cutoff = today + timedelta(days=60)
+        near_expiry_count = db.query(func.count(StockBatch.id)).filter(
+            StockBatch.clinic_id == clinic_id,
+            StockBatch.is_active == True,
+            StockBatch.current_quantity > 0,
+            StockBatch.expiry_date >= today,
+            StockBatch.expiry_date <= near_expiry_cutoff
+        ).scalar() or 0
+
+        pharmacy_sales_total = db.query(func.sum(InvoiceItem.total_price)).join(Invoice, InvoiceItem.invoice_id == Invoice.id).filter(
+            Invoice.clinic_id == clinic_id,
+            InvoiceItem.item_type == "MEDICINE"
+        ).scalar() or 0.0
+
+        return {
+            "clinic_id": clinic_id,
+            "generated_at": datetime.now().isoformat(),
+            "patient_metrics": {
+                "total_patients": total_patients,
+                "new_patients_30d": new_patients_30d,
+                "appointments_total": total_apps,
+                "completed_consultations": completed_apps,
+                "cancellations": cancelled_apps,
+                "no_shows": noshow_apps,
+            },
+            "doctor_metrics": {
+                "active_doctors": total_docs,
+                "doctor_utilization": doctor_utilization,
+            },
+            "lab_metrics": {
+                "total_orders": total_lab_orders,
+                "pending_orders": pending_lab_orders,
+                "released_reports": released_lab_reports,
+            },
+            "pharmacy_metrics": {
+                "active_batches": active_batches,
+                "low_stock_count": low_stock_count,
+                "near_expiry_count": near_expiry_count,
+                "expired_count": expired_count,
+                "pharmacy_sales_total": float(pharmacy_sales_total),
+            },
+        }
+
+
 admin_service = AdminService()

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { clinicalService, CreateConsultationPayload } from '@/services/clinical'
 import { doctorPortalService } from '@/services/doctor_portal'
+import { aiService } from '@/services/ai'
 import { useToast } from '@/context/ToastContext'
 import { Card, CardTitle, CardHeader, CardDescription } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -19,6 +20,7 @@ import {
   History,
   AlertTriangle,
   ArrowLeft,
+  Sparkles,
 } from 'lucide-react'
 
 export const DoctorConsultationPage: React.FC = () => {
@@ -164,6 +166,21 @@ export const DoctorConsultationPage: React.FC = () => {
     onError: (err: any) => showToast(err.message || 'Failed to finalize consultation', 'error'),
   })
 
+  const aiDraftMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedPatientId) throw new Error('Please select a patient before requesting AI clinical draft.')
+      const raw = [chiefComplaint, historyOfIllness, examinationNotes].filter(Boolean).join('\n') || 'General consultation review'
+      return aiService.draftClinicalNote(selectedPatientId, raw)
+    },
+    onSuccess: (data: any) => {
+      if (data.chief_complaint && !chiefComplaint) setChiefComplaint(data.chief_complaint)
+      if (data.history_of_present_illness && !historyOfIllness) setHistoryOfIllness(data.history_of_present_illness)
+      if (data.treatment_plan_draft && !treatmentPlan) setTreatmentPlan(data.treatment_plan_draft)
+      showToast('AI draft generated! Please review and modify before finalizing.', 'info')
+    },
+    onError: (err: any) => showToast(err.message || 'AI drafting failed', 'error'),
+  })
+
   const currentAppointment = appointments.find((a) => a.id === appointmentId)
 
   return (
@@ -193,6 +210,17 @@ export const DoctorConsultationPage: React.FC = () => {
             </Badge>
           ) : (
             <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-purple-700 border-purple-300 hover:bg-purple-50"
+                leftIcon={<Sparkles className="w-4 h-4 text-purple-600" />}
+                onClick={() => aiDraftMutation.mutate()}
+                isLoading={aiDraftMutation.isPending}
+                disabled={!selectedPatientId}
+              >
+                AI Draft Assistant
+              </Button>
               <Button
                 variant="outline"
                 size="sm"

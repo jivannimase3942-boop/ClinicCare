@@ -22,4 +22,19 @@ export const aiService = {
     const res = await api.get<ApiResponse<AIConversation>>(`/ai/conversations/${id}`)
     return res.data.data
   },
+
+  draftClinicalNote: async (patientId: string, rawNotes: string): Promise<any> => {
+    const res = await api.post<ApiResponse<any>>('/ai/clinical/draft-note', {
+      patient_id: patientId,
+      raw_notes: rawNotes,
+    })
+    return res.data.data
+  },
+
+  summarizeLabReport: async (orderId: string): Promise<any> => {
+    const res = await api.post<ApiResponse<any>>('/ai/clinical/summarize-report', {
+      order_id: orderId,
+    })
+    return res.data.data
+  },
 }

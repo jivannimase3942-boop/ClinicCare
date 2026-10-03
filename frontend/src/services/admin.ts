@@ -103,5 +103,10 @@ export const adminService = {
     const res = await api.post<ApiResponse<any>>(`/admin/approve-staff/${userId}`)
     return res.data.data
   },
+
+  getClinicalAnalytics: async (): Promise<any> => {
+    const res = await api.get<ApiResponse<any>>('/admin/clinical-analytics')
+    return res.data.data
+  },
 }
 

@@ -36,6 +36,7 @@ from app.api.routes import (
     prescriptions,
     lab,
     pharmacy,
+    automation,
 )
 
 
@@ -207,6 +208,7 @@ app.include_router(clinical.router, prefix="/api")
 app.include_router(prescriptions.router, prefix="/api")
 app.include_router(lab.router, prefix="/api")
 app.include_router(pharmacy.router, prefix="/api")
+app.include_router(automation.router, prefix="/api")
 
 # Direct Webhook endpoints matching JSON specification (/whatsapp-webhook)
 @app.get("/whatsapp-webhook", tags=["WhatsApp Webhook"])

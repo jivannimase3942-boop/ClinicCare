@@ -56,6 +56,16 @@ def get_stats(db: Session = Depends(get_db)):
     return ApiResponse(success=True, data=stats)
 
 
+@router.get("/clinical-analytics", response_model=ApiResponse[Dict[str, Any]], dependencies=[strict_admin_auth])
+def get_clinical_analytics(
+    current_user: User = Depends(require_roles(["ADMIN"])),
+    db: Session = Depends(get_db)
+):
+    clinic_id = current_user.clinic_id or "default"
+    analytics = admin_service.get_clinical_analytics(db, clinic_id)
+    return ApiResponse(success=True, data=analytics)
+
+
 @router.get("/patients", response_model=ApiResponse[List[Dict[str, Any]]], dependencies=[admin_auth])
 def list_patients(search: Optional[str] = Query(None), db: Session = Depends(get_db)):
     query = db.query(Patient).join(User, Patient.user_id == User.id)
