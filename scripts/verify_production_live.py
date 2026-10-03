@@ -232,6 +232,38 @@ def run():
             safe_print(f"       [{title}] Latency: {elapsed:.2f}s | Reply snippet: {reply[:60].replace(chr(10), ' ')}...")
         test_check(f"AI Chat: {title}", _test_ai)
 
+    # 6b. Phase 2: Live OPD Queue & Billing Checks
+    safe_print("\n--- 6b. Testing Phase 2 OPD Queue, Billing, and Revenue Endpoints ---")
+    if "Admin" in tokens:
+        def _phase2_admin_billing():
+            hdr = {"Authorization": f"Bearer {tokens['Admin']}"}
+            # Queue check
+            res_q = req(f"{BACKEND}/api/appointments/queue/today", headers=hdr)
+            assert res_q.getcode() == 200, f"Failed queue/today: {res_q.getcode()}"
+            # Billing invoices
+            res_inv = req(f"{BACKEND}/api/billing/invoices", headers=hdr)
+            assert res_inv.getcode() == 200, f"Failed billing/invoices: {res_inv.getcode()}"
+            # Revenue summary
+            res_rev = req(f"{BACKEND}/api/billing/revenue", headers=hdr)
+            assert res_rev.getcode() == 200, f"Failed billing/revenue: {res_rev.getcode()}"
+            rev_data = json.loads(res_rev.read().decode("utf-8")).get("data", {})
+            assert "total_revenue" in rev_data, "Revenue summary missing total_revenue"
+        test_check("Phase 2 Admin OPD Queue, Invoices & Revenue Endpoints", _phase2_admin_billing)
+
+    if "Patient" in tokens:
+        def _phase2_patient_billing_rbac():
+            hdr = {"Authorization": f"Bearer {tokens['Patient']}"}
+            # Patient cannot view revenue summary
+            try:
+                req(f"{BACKEND}/api/billing/revenue", headers=hdr)
+                raise AssertionError("Patient unexpectedly accessed /api/billing/revenue")
+            except urllib.error.HTTPError as e:
+                assert e.code == 403, f"Expected 403 for patient on /revenue, got {e.code}"
+            # Patient can view own invoices
+            res_my_inv = req(f"{BACKEND}/api/billing/invoices", headers=hdr)
+            assert res_my_inv.getcode() == 200, f"Failed patient billing/invoices: {res_my_inv.getcode()}"
+        test_check("Phase 2 Patient Billing RBAC Isolation", _phase2_patient_billing_rbac)
+
     # 7. Frontend Bundle & API Resolution
     safe_print("\n--- 7. Testing Frontend Bundle & API Resolution ---")
     def _test_bundle():
