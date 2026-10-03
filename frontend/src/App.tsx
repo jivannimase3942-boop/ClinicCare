@@ -71,6 +71,7 @@ import { FrontDeskQueue } from '@/pages/frontdesk/FrontDeskQueue'
 
 // Admin Revenue & Patient Invoices / Timeline / Prescriptions
 import { AdminRevenue } from '@/pages/admin/AdminRevenue'
+import { AdminPharmacyPage } from '@/pages/admin/AdminPharmacyPage'
 import { PatientInvoicesPage } from '@/pages/patient/PatientInvoicesPage'
 import { PatientTimelinePage } from '@/pages/patient/PatientTimelinePage'
 import { PatientPrescriptionsPage } from '@/pages/patient/PatientPrescriptionsPage'
@@ -184,6 +185,7 @@ export const App: React.FC = () => {
                 <Route index element={<Navigate to="/admin/dashboard" replace />} />
                 <Route path="dashboard" element={<AdminDashboard />} />
                 <Route path="revenue" element={<AdminRevenue />} />
+                <Route path="pharmacy" element={<AdminPharmacyPage />} />
                 <Route path="clinic-profile" element={<AdminClinicProfile />} />
                 <Route path="audit-logs" element={<AdminAuditLogs />} />
                 <Route path="emergency" element={<AdminEmergency />} />

@@ -18,6 +18,7 @@ from app.models.billing import Invoice, InvoiceItem, Payment, Refund
 from app.models.clinical import ConsultationRecord, VitalSign, ClinicalDocument
 from app.models.prescription import Medicine, Prescription, PrescriptionItem
 from app.models.lab import LabTest, LabOrder, LabSample, LabResult, LabReport
+from app.models.pharmacy import Supplier, StockBatch, StockTransaction
 
 __all__ = [
     "Clinic",
@@ -46,6 +47,9 @@ __all__ = [
     "LabSample",
     "LabResult",
     "LabReport",
+    "Supplier",
+    "StockBatch",
+    "StockTransaction",
     "Report",
     "Feedback",
     "AIConversation",

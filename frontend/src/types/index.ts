@@ -828,3 +828,73 @@ export interface LabOrder {
   created_at: string
   updated_at: string
 }
+
+export interface Supplier {
+  id: string
+  clinic_id: string
+  name: string
+  contact_person?: string | null
+  phone?: string | null
+  email?: string | null
+  gstin?: string | null
+  dl_number?: string | null
+  address?: string | null
+  is_active: boolean
+  created_at: string
+}
+
+export interface StockBatch {
+  id: string
+  clinic_id: string
+  medicine_id: string
+  medicine_name?: string | null
+  generic_name?: string | null
+  dosage_form?: string | null
+  supplier_id?: string | null
+  supplier_name?: string | null
+  batch_number: string
+  expiry_date: string
+  purchase_price: number
+  mrp: number
+  sale_price: number
+  initial_quantity: number
+  current_quantity: number
+  reorder_threshold: number
+  is_active: boolean
+  is_expired: boolean
+  is_near_expiry: boolean
+  is_low_stock: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface StockTransaction {
+  id: string
+  clinic_id: string
+  batch_id: string
+  batch_number?: string | null
+  medicine_id: string
+  medicine_name?: string | null
+  transaction_type: string
+  quantity: number
+  balance_after: number
+  unit_price: number
+  invoice_id?: string | null
+  prescription_id?: string | null
+  reason?: string | null
+  actor_name?: string | null
+  created_at: string
+}
+
+export interface StockAlert {
+  batch_id: string
+  batch_number: string
+  medicine_id: string
+  medicine_name: string
+  expiry_date: string
+  current_quantity: number
+  reorder_threshold: number
+  alert_type: 'EXPIRED' | 'NEAR_EXPIRY' | 'LOW_STOCK'
+  severity: 'HIGH' | 'MEDIUM' | 'LOW'
+  message: string
+}
