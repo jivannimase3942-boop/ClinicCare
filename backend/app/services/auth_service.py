@@ -68,22 +68,29 @@ class AuthService:
         db.commit()
 
         # 5. Dispatch email via email_service
-        email_result = email_service.send_otp_email(
-            to_email=normalized_email,
-            otp_code=otp_code,
-            full_name=full_name,
-            purpose="account registration",
-        )
+        try:
+            email_result = email_service.send_otp_email(
+                to_email=normalized_email,
+                otp_code=otp_code,
+                full_name=full_name,
+                purpose="account registration",
+            )
+        except Exception:
+            db.delete(ev)
+            db.commit()
+            raise
 
         result: Dict[str, Any] = {
             "email": normalized_email,
             "message": f"Verification code sent to {normalized_email}",
             "expires_in_minutes": 10,
             "email_dispatched": email_result.get("dispatched", False),
+            "email_configured": email_result.get("email_configured", False),
             "smtp_configured": email_result.get("smtp_configured", False),
+            "provider": email_result.get("provider", "resend"),
         }
-        # In non-production development environments where SMTP is unconfigured, provide dev code for testing
-        if not settings.is_production and (settings.DEBUG or not settings.SMTP_HOST):
+        # In non-production development environments where email is unconfigured or debug is active, provide dev code for testing
+        if not settings.is_production and (settings.DEBUG or not email_service.is_configured()):
             result["dev_code"] = otp_code
 
         return result
@@ -301,21 +308,28 @@ class AuthService:
         db.commit()
 
         # Dispatch email via email_service
-        email_result = email_service.send_otp_email(
-            to_email=normalized_email,
-            otp_code=otp_code,
-            full_name=user.full_name,
-            purpose="portal login",
-        )
+        try:
+            email_result = email_service.send_otp_email(
+                to_email=normalized_email,
+                otp_code=otp_code,
+                full_name=user.full_name,
+                purpose="portal login",
+            )
+        except Exception:
+            db.delete(ev)
+            db.commit()
+            raise
 
         result: Dict[str, Any] = {
             "email": normalized_email,
             "message": f"Login code sent to {normalized_email}",
             "expires_in_minutes": 10,
             "email_dispatched": email_result.get("dispatched", False),
+            "email_configured": email_result.get("email_configured", False),
             "smtp_configured": email_result.get("smtp_configured", False),
+            "provider": email_result.get("provider", "resend"),
         }
-        if not settings.is_production and (settings.DEBUG or not settings.SMTP_HOST):
+        if not settings.is_production and (settings.DEBUG or not email_service.is_configured()):
             result["dev_code"] = otp_code
 
         return result

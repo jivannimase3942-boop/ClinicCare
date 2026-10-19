@@ -89,7 +89,14 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
 
-    # Email & Alerts (SMTP / SendGrid / Postmark / Brevo / Gmail)
+    # Email & Alerts Configuration (Resend HTTPS API / SMTP)
+    EMAIL_PROVIDER: str = "resend"
+    RESEND_API_KEY: Optional[str] = None
+    RESEND_FROM_EMAIL: Optional[str] = None
+    RESEND_API_URL: str = "https://api.resend.com/emails"
+    RESEND_TIMEOUT: float = 10.0
+
+    # SMTP Configuration (Fallback & backward-compatible transport)
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
     SMTP_USER: Optional[str] = None

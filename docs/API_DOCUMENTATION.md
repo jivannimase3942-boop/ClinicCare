@@ -3,8 +3,14 @@
 Base URL: `http://localhost:8000/api`
 
 ## Authentication (`/auth`)
-- `POST /auth/register`: Register new user (Patient by default).
-- `POST /auth/login`: Authenticate and obtain JWT bearer token.
+- `POST /auth/register/send-otp`: Request 6-digit numeric verification code to email (Resend HTTPS API / SMTP).
+- `POST /auth/register/verify-otp`: Validate verification code before registration.
+- `POST /auth/register`: Register new user with verified OTP (Patient by default).
+- `POST /auth/login`: Authenticate with password and obtain JWT bearer token.
+- `POST /auth/login/send-otp`: Request passwordless/2FA verification code to registered email.
+- `POST /auth/login/verify-otp`: Validate login verification code and obtain JWT bearer token.
+- `GET /auth/smtp-status`: Safe diagnostic status of email service (backward-compatible).
+- `GET /auth/email-status`: Safe diagnostic status of active email provider (Resend HTTPS API / SMTP).
 - `GET /auth/me`: Get current authenticated user details and profile.
 - `PATCH /auth/change-password`: Update password.
 

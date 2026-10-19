@@ -19,10 +19,18 @@ from app.schemas.auth import (
 from app.services.auth_service import auth_service
 from app.services.email_service import (
     email_service,
+    EmailNotConfiguredError,
+    EmailConnectionError,
+    EmailAuthenticationError,
+    EmailDeliveryError,
     SMTPNotConfiguredError,
     SMTPConnectionError,
     SMTPAuthenticationError,
     SMTPDeliveryError,
+    ResendNotConfiguredError,
+    ResendConnectionError,
+    ResendAuthenticationError,
+    ResendDeliveryError,
 )
 from app.core.security import verify_password, get_password_hash
 from app.api.dependencies import get_current_user
@@ -33,11 +41,22 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.get("/smtp-status", response_model=ApiResponse[dict])
 def get_smtp_status():
-    """Returns safe diagnostic configuration status of the SMTP email service."""
+    """Returns safe diagnostic configuration status of the email service (Resend HTTPS API / SMTP)."""
     status_data = email_service.get_status()
     return ApiResponse(
         success=True,
-        message="SMTP service status retrieved",
+        message="Email service status retrieved",
+        data=status_data,
+    )
+
+
+@router.get("/email-status", response_model=ApiResponse[dict])
+def get_email_status():
+    """Returns safe diagnostic configuration status of the active email service."""
+    status_data = email_service.get_status()
+    return ApiResponse(
+        success=True,
+        message="Email service status retrieved",
         data=status_data,
     )
 
@@ -47,9 +66,19 @@ def send_registration_otp(payload: SendOtpRequest, db: Session = Depends(get_db)
     try:
         res = auth_service.send_registration_otp(db, email=payload.email, full_name=payload.full_name)
         return ApiResponse(success=True, message=res["message"], data=res)
-    except SMTPNotConfiguredError as e:
+    except (EmailNotConfiguredError, SMTPNotConfiguredError, ResendNotConfiguredError) as e:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
-    except (SMTPConnectionError, SMTPAuthenticationError, SMTPDeliveryError) as e:
+    except (
+        EmailConnectionError,
+        EmailAuthenticationError,
+        EmailDeliveryError,
+        SMTPConnectionError,
+        SMTPAuthenticationError,
+        SMTPDeliveryError,
+        ResendConnectionError,
+        ResendAuthenticationError,
+        ResendDeliveryError,
+    ) as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -144,9 +173,19 @@ def send_login_otp(payload: LoginSendOtpRequest, db: Session = Depends(get_db)):
     try:
         res = auth_service.send_login_otp(db, email=payload.email)
         return ApiResponse(success=True, message=res["message"], data=res)
-    except SMTPNotConfiguredError as e:
+    except (EmailNotConfiguredError, SMTPNotConfiguredError, ResendNotConfiguredError) as e:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
-    except (SMTPConnectionError, SMTPAuthenticationError, SMTPDeliveryError) as e:
+    except (
+        EmailConnectionError,
+        EmailAuthenticationError,
+        EmailDeliveryError,
+        SMTPConnectionError,
+        SMTPAuthenticationError,
+        SMTPDeliveryError,
+        ResendConnectionError,
+        ResendAuthenticationError,
+        ResendDeliveryError,
+    ) as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

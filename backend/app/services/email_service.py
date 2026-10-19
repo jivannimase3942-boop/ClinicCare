@@ -1,3 +1,4 @@
+import os
 import smtplib
 import socket
 import ssl
@@ -5,6 +6,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate, make_msgid
 from typing import Dict, Any, Optional
+
+import httpx
 from app.core.config import settings
 
 
@@ -13,55 +16,278 @@ class EmailServiceError(Exception):
     pass
 
 
-class SMTPNotConfiguredError(EmailServiceError):
+class EmailNotConfiguredError(EmailServiceError):
+    """Raised when email credentials/keys are missing in an environment that requires them."""
+    pass
+
+
+class EmailConnectionError(EmailServiceError):
+    """Raised when network connection, timeout, or DNS resolution fails."""
+    pass
+
+
+class EmailAuthenticationError(EmailServiceError):
+    """Raised when email provider authentication or authorization is rejected."""
+    pass
+
+
+class EmailDeliveryError(EmailServiceError):
+    """Raised when message transmission or recipient is rejected by email provider."""
+    pass
+
+
+# Specific SMTP exception subclasses for backward compatibility
+class SMTPNotConfiguredError(EmailNotConfiguredError):
     """Raised when SMTP credentials/host are missing in an environment that requires them."""
     pass
 
 
-class SMTPConnectionError(EmailServiceError):
+class SMTPConnectionError(EmailConnectionError):
     """Raised when connecting or establishing TLS to the SMTP server fails."""
     pass
 
 
-class SMTPAuthenticationError(EmailServiceError):
+class SMTPAuthenticationError(EmailAuthenticationError):
     """Raised when SMTP authentication is rejected by the provider."""
     pass
 
 
-class SMTPDeliveryError(EmailServiceError):
+class SMTPDeliveryError(EmailDeliveryError):
     """Raised when message transmission or recipient is rejected by SMTP server."""
+    pass
+
+
+# Specific Resend HTTPS API exception subclasses
+class ResendNotConfiguredError(EmailNotConfiguredError):
+    """Raised when Resend API key is missing in an environment that requires it."""
+    pass
+
+
+class ResendConnectionError(EmailConnectionError):
+    """Raised when network connection or timeout to Resend API occurs."""
+    pass
+
+
+class ResendAuthenticationError(EmailAuthenticationError):
+    """Raised when Resend API rejects credentials with HTTP 401/403."""
+    pass
+
+
+class ResendDeliveryError(EmailDeliveryError):
+    """Raised when Resend rejects message payload (HTTP 422, 429, 5xx)."""
     pass
 
 
 class EmailService:
     @staticmethod
-    def is_configured() -> bool:
-        """Checks if all necessary SMTP credentials are provided."""
+    def _sanitize_text(text: str) -> str:
+        """Sanitizes text to prevent API keys or passwords from appearing in exception messages or logs."""
+        if not text:
+            return ""
+        clean = str(text)
+        if getattr(settings, "RESEND_API_KEY", None) and len(settings.RESEND_API_KEY) > 4:
+            clean = clean.replace(settings.RESEND_API_KEY, "[REDACTED_API_KEY]")
+        if getattr(settings, "SMTP_PASSWORD", None) and len(settings.SMTP_PASSWORD) > 4:
+            clean = clean.replace(settings.SMTP_PASSWORD, "[REDACTED_PASSWORD]")
+        return clean
+
+    @staticmethod
+    def is_smtp_configured() -> bool:
+        """Checks if all necessary SMTP credentials and host are provided."""
         return bool(
-            settings.SMTP_HOST
-            and settings.SMTP_USER
-            and settings.SMTP_PASSWORD
+            getattr(settings, "SMTP_HOST", None)
+            and getattr(settings, "SMTP_USER", None)
+            and getattr(settings, "SMTP_PASSWORD", None)
         )
 
     @staticmethod
+    def is_resend_configured() -> bool:
+        """Checks if Resend API key is configured."""
+        key = getattr(settings, "RESEND_API_KEY", None)
+        return bool(key and str(key).strip())
+
+    @staticmethod
+    def get_active_provider() -> str:
+        """
+        Resolves the active email transport provider.
+        Supports 'resend' (HTTPS API) and 'smtp' (traditional SMTP).
+        If provider is 'resend' but RESEND_API_KEY is missing while SMTP is configured,
+        falls back to SMTP for backward compatibility.
+        """
+        pref = (getattr(settings, "EMAIL_PROVIDER", None) or "resend").strip().lower()
+        if pref == "smtp":
+            return "smtp"
+        if pref == "resend":
+            if EmailService.is_resend_configured():
+                return "resend"
+            if EmailService.is_smtp_configured():
+                return "smtp"
+            return "resend"
+        return pref
+
+    @staticmethod
+    def is_configured() -> bool:
+        """Checks if the active email provider is fully configured with required credentials."""
+        provider = EmailService.get_active_provider()
+        if provider == "resend":
+            return EmailService.is_resend_configured()
+        elif provider == "smtp":
+            return EmailService.is_smtp_configured()
+        return False
+
+    @staticmethod
     def get_status() -> Dict[str, Any]:
-        """Returns safe SMTP diagnostic status without exposing credentials."""
+        """
+        Returns safe diagnostic status without exposing secret API keys or passwords.
+        Maintains backward compatibility with legacy SMTP keys while exposing provider-neutral diagnostics.
+        """
         configured = EmailService.is_configured()
-        use_ssl = bool(getattr(settings, "SMTP_USE_SSL", False) or settings.SMTP_PORT == 465)
+        provider = EmailService.get_active_provider()
+        use_ssl = bool(getattr(settings, "SMTP_USE_SSL", False) or getattr(settings, "SMTP_PORT", 587) == 465)
         use_tls = bool(getattr(settings, "SMTP_USE_TLS", True) and not use_ssl)
-        sender = settings.SMTP_SENDER or settings.SMTP_USER or "alerts@cliniccarehospital.com"
-        
+
+        sender = (
+            getattr(settings, "RESEND_FROM_EMAIL", None)
+            or getattr(settings, "SMTP_SENDER", None)
+            or getattr(settings, "SMTP_USER", None)
+            or "alerts@cliniccarehospital.com"
+        )
+
+        transport = "https" if provider == "resend" else ("ssl" if use_ssl else ("tls" if use_tls else "plain"))
+
         return {
             "configured": configured,
-            "host": settings.SMTP_HOST or None,
-            "port": settings.SMTP_PORT,
+            "provider": provider,
             "sender": sender,
+            "transport": transport,
+            "email_configured": configured,
+            "smtp_configured": EmailService.is_smtp_configured(),
+            "resend_configured": EmailService.is_resend_configured(),
+            "host": getattr(settings, "SMTP_HOST", None) or None,
+            "port": getattr(settings, "SMTP_PORT", 587),
             "use_tls": use_tls,
             "use_ssl": use_ssl,
         }
 
     @staticmethod
-    def send_email(
+    def _execute_resend_post(
+        api_url: str,
+        headers: Dict[str, str],
+        payload: Dict[str, Any],
+        timeout: float,
+    ) -> httpx.Response:
+        """Executes the HTTP POST request to the Resend API."""
+        with httpx.Client(timeout=timeout) as client:
+            return client.post(api_url, headers=headers, json=payload)
+
+    @staticmethod
+    def _send_via_resend(
+        to_email: str,
+        subject: str,
+        text_content: str,
+        html_content: Optional[str] = None,
+        from_email: Optional[str] = None,
+        from_name: Optional[str] = None,
+    ) -> bool:
+        """
+        Dispatches email via Resend HTTPS API using httpx.
+        Enforces strict timeouts, safe error handling, and no secret leakage.
+        """
+        normalized_recipient = to_email.strip().lower()
+        if not EmailService.is_resend_configured():
+            if settings.is_production:
+                raise ResendNotConfiguredError(
+                    "Resend email service is not configured on this server. "
+                    "Required environment variable RESEND_API_KEY is missing."
+                )
+            print(f"[ClinicCare Email] Notice: Resend API key unconfigured in {settings.ENVIRONMENT} mode. Skipping dispatch to {normalized_recipient}.")
+            return False
+
+        # Determine sender header
+        raw_sender = from_email or getattr(settings, "RESEND_FROM_EMAIL", None) or getattr(settings, "SMTP_SENDER", None) or "alerts@cliniccarehospital.com"
+        raw_sender = str(raw_sender).strip()
+        sender_name = from_name or getattr(settings, "SMTP_SENDER_NAME", "ClinicCare Healthcare")
+
+        if "<" in raw_sender and ">" in raw_sender:
+            sender_header = raw_sender
+        elif sender_name:
+            sender_header = f"{sender_name} <{raw_sender}>"
+        else:
+            sender_header = raw_sender
+
+        api_url = getattr(settings, "RESEND_API_URL", "https://api.resend.com/emails")
+        timeout = float(getattr(settings, "RESEND_TIMEOUT", 10.0))
+        api_key = settings.RESEND_API_KEY.strip()
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "ClinicCare-Healthcare/1.0",
+        }
+
+        payload: Dict[str, Any] = {
+            "from": sender_header,
+            "to": [normalized_recipient],
+            "subject": subject,
+            "text": text_content,
+        }
+        if html_content:
+            payload["html"] = html_content
+
+        try:
+            resp = EmailService._execute_resend_post(api_url=api_url, headers=headers, payload=payload, timeout=timeout)
+        except (httpx.TimeoutException, httpx.ConnectTimeout, httpx.ReadTimeout) as e:
+            raise ResendConnectionError(
+                f"Connection to Resend API timed out after {timeout}s: {EmailService._sanitize_text(str(e))}"
+            )
+        except (httpx.ConnectError, httpx.NetworkError) as e:
+            raise ResendConnectionError(
+                f"Failed to connect to Resend HTTPS API: {EmailService._sanitize_text(str(e))}"
+            )
+        except Exception as e:
+            raise ResendConnectionError(
+                f"Network error during Resend email dispatch: {EmailService._sanitize_text(str(e))}"
+            )
+
+        if 200 <= resp.status_code < 300:
+            print(f"[ClinicCare Email] Successfully dispatched email via Resend to {normalized_recipient}")
+            return True
+
+        # Extract safe error details from response body without logging sensitive headers or payload
+        err_msg = ""
+        try:
+            err_json = resp.json()
+            if isinstance(err_json, dict):
+                err_msg = err_json.get("message") or err_json.get("error") or str(err_json)
+            else:
+                err_msg = resp.text[:200]
+        except Exception:
+            err_msg = resp.text[:200]
+        err_msg = EmailService._sanitize_text(err_msg)
+
+        if resp.status_code in (401, 403):
+            raise ResendAuthenticationError(
+                f"Resend authentication failed (HTTP {resp.status_code}): {err_msg or 'Invalid API key or unauthorized permission'}"
+            )
+        elif resp.status_code == 422:
+            raise ResendDeliveryError(
+                f"Resend validation error (HTTP 422): {err_msg or 'Invalid sender domain or recipient address'}"
+            )
+        elif resp.status_code == 429:
+            raise ResendDeliveryError(
+                f"Resend rate limit exceeded (HTTP 429): {err_msg or 'Too many requests; rate limit reached'}"
+            )
+        elif 500 <= resp.status_code < 600:
+            raise ResendDeliveryError(
+                f"Resend service error (HTTP {resp.status_code}): {err_msg or 'Provider server failure'}"
+            )
+        else:
+            raise ResendDeliveryError(
+                f"Resend rejected email dispatch with HTTP {resp.status_code}: {err_msg}"
+            )
+
+    @staticmethod
+    def _send_via_smtp(
         to_email: str,
         subject: str,
         text_content: str,
@@ -71,44 +297,34 @@ class EmailService:
     ) -> bool:
         """
         Sends an email via SMTP with RFC-compliant headers and HTML+Plaintext multipart support.
-        Raises specific exceptions on connection, auth, or delivery failures.
+        Maintained as backward-compatible fallback for environments supporting outbound SMTP.
         """
         normalized_recipient = to_email.strip().lower()
-        if not normalized_recipient:
-            raise ValueError("Recipient email address cannot be empty")
-
-        if not EmailService.is_configured():
+        if not EmailService.is_smtp_configured():
             if settings.is_production:
                 raise SMTPNotConfiguredError(
                     "SMTP email service is not configured on this server. "
                     "Required environment variables (SMTP_HOST, SMTP_USER, SMTP_PASSWORD) are missing."
                 )
-            # In non-production development environments, log safely without failing
             print(f"[ClinicCare Email] Notice: SMTP unconfigured in {settings.ENVIRONMENT} mode. Skipping dispatch to {normalized_recipient}.")
             return False
 
-        # Sender determination: prefer explicit from_email, then settings.SMTP_SENDER, then settings.SMTP_USER
         sender_email = from_email or settings.SMTP_SENDER or settings.SMTP_USER
         sender_name = from_name or getattr(settings, "SMTP_SENDER_NAME", "ClinicCare Healthcare")
         sender_header = f"{sender_name} <{sender_email}>"
 
-        # Construct RFC-compliant multipart message
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"] = sender_header
         msg["To"] = normalized_recipient
         msg["Date"] = formatdate(localtime=True)
-        
-        # Safe domain for Message-ID
+
         domain = "cliniccarehospital.com"
         if settings.SMTP_HOST and "." in settings.SMTP_HOST:
             domain = settings.SMTP_HOST
         msg["Message-ID"] = make_msgid(domain=domain)
 
-        # Plain text alternative
         msg.attach(MIMEText(text_content, "plain", "utf-8"))
-
-        # HTML alternative
         if html_content:
             msg.attach(MIMEText(html_content, "html", "utf-8"))
 
@@ -129,29 +345,68 @@ class EmailService:
                     server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                     server.send_message(msg)
 
-            print(f"[ClinicCare Email] Successfully dispatched email to {normalized_recipient}")
+            print(f"[ClinicCare Email] Successfully dispatched email via SMTP to {normalized_recipient}")
             return True
 
         except (socket.timeout, socket.gaierror, ConnectionRefusedError, smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected) as e:
             raise SMTPConnectionError(
-                f"Failed to connect to SMTP server '{settings.SMTP_HOST}:{settings.SMTP_PORT}': {str(e)}"
+                f"Failed to connect to SMTP server '{settings.SMTP_HOST}:{settings.SMTP_PORT}': {EmailService._sanitize_text(str(e))}"
             )
         except smtplib.SMTPAuthenticationError as e:
             raise SMTPAuthenticationError(
-                f"SMTP authentication failed for account '{settings.SMTP_USER}': {str(e)}"
+                f"SMTP authentication failed for account '{settings.SMTP_USER}': {EmailService._sanitize_text(str(e))}"
             )
         except (smtplib.SMTPRecipientsRefused, smtplib.SMTPSenderRefused, smtplib.SMTPDataError) as e:
             raise SMTPDeliveryError(
-                f"SMTP mail provider rejected delivery: {str(e)}"
+                f"SMTP mail provider rejected delivery: {EmailService._sanitize_text(str(e))}"
             )
         except smtplib.SMTPException as e:
             raise SMTPDeliveryError(
-                f"SMTP error during message dispatch: {str(e)}"
+                f"SMTP error during message dispatch: {EmailService._sanitize_text(str(e))}"
             )
         except Exception as e:
             raise SMTPDeliveryError(
-                f"Unexpected error during email dispatch: {str(e)}"
+                f"Unexpected error during email dispatch: {EmailService._sanitize_text(str(e))}"
             )
+
+    @staticmethod
+    def send_email(
+        to_email: str,
+        subject: str,
+        text_content: str,
+        html_content: Optional[str] = None,
+        from_email: Optional[str] = None,
+        from_name: Optional[str] = None,
+    ) -> bool:
+        """
+        Dispatches an email using the active provider (Resend HTTPS API or SMTP).
+        Raises specific, safe exception on connection, auth, or delivery failures.
+        """
+        normalized_recipient = to_email.strip().lower()
+        if not normalized_recipient:
+            raise ValueError("Recipient email address cannot be empty")
+
+        provider = EmailService.get_active_provider()
+        if provider == "resend":
+            return EmailService._send_via_resend(
+                to_email=normalized_recipient,
+                subject=subject,
+                text_content=text_content,
+                html_content=html_content,
+                from_email=from_email,
+                from_name=from_name,
+            )
+        elif provider == "smtp":
+            return EmailService._send_via_smtp(
+                to_email=normalized_recipient,
+                subject=subject,
+                text_content=text_content,
+                html_content=html_content,
+                from_email=from_email,
+                from_name=from_name,
+            )
+        else:
+            raise EmailDeliveryError(f"Unsupported email provider: {provider}")
 
     @staticmethod
     def send_otp_email(
@@ -161,7 +416,8 @@ class EmailService:
         purpose: str = "account registration",
     ) -> Dict[str, Any]:
         """
-        Sends a high-deliverability branded OTP verification email with both plain text and HTML.
+        Sends a high-deliverability branded OTP verification email with both plain text and HTML
+        via the active email provider (Resend HTTPS API or SMTP).
         """
         display_name = full_name or "Patient"
         subject = f"Your ClinicCare Verification Code: {otp_code}"
@@ -216,10 +472,15 @@ class EmailService:
             html_content=html_content,
         )
 
+        provider = EmailService.get_active_provider()
+        is_conf = EmailService.is_configured()
+
         return {
             "dispatched": dispatched,
             "recipient": to_email.strip().lower(),
-            "smtp_configured": EmailService.is_configured(),
+            "provider": provider,
+            "email_configured": is_conf,
+            "smtp_configured": is_conf,
         }
 
 

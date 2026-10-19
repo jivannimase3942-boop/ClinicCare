@@ -12,6 +12,7 @@ from app.core.sanitizer import InputSanitizationMiddleware
 from app.db.session import engine, SessionLocal, Base, get_db
 import app.db.base  # ensure all models are registered with Base metadata
 from app.services.error_service import error_service
+from app.services.email_service import email_service
 from app.integrations.whatsapp.service import whatsapp_service
 
 from app.api.routes import (
@@ -221,6 +222,7 @@ def health_check():
     except Exception as e:
         db_status = f"unhealthy: {str(e)}"
 
+    email_diag = email_service.get_status()
     return {
         "success": True,
         "status": "healthy" if db_status == "healthy" else "degraded",
@@ -228,7 +230,10 @@ def health_check():
         "database": db_status,
         "gemini_ai_configured": bool(settings.GEMINI_API_KEY),
         "whatsapp_configured": bool(settings.WA_PHONE_NUMBER_ID and settings.WA_ACCESS_TOKEN),
-        "smtp_configured": bool(settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD),
+        "smtp_configured": bool(email_diag.get("smtp_configured", False)),
+        "resend_configured": bool(email_diag.get("resend_configured", False)),
+        "email_configured": bool(email_diag.get("configured", False)),
+        "email_provider": email_diag.get("provider", "resend"),
     }
 
 
