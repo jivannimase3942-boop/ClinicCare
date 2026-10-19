@@ -22,7 +22,7 @@ def conn(src, dst, ctype="main", s_idx=0, d_idx=0):
 
 # 1. Handshake Webhook
 node("wh-ver", "WhatsApp Webhook Verification (GET)", "n8n-nodes-base.webhook", [100, 100], {"httpMethod": "GET", "path": "whatsapp-webhook", "responseMode": "responseNode"}, 1.1, "whatsapp-webhook-verify")
-node("code-ver", "Verify Handshake Token", "n8n-nodes-base.code", [300, 100], {"jsCode": "const q=$input.first().json.query||{}; if(q['hub.mode']==='subscribe'&&q['hub.verify_token']==($env.WA_VERIFY_TOKEN||'hospital_ai_webhook_verify_token')){ return [{json:{statusCode:200,body:q['hub.challenge']}}]; } return [{json:{statusCode:403,body:'Token mismatch'}}];"}, 2)
+node("code-ver", "Verify Handshake Token", "n8n-nodes-base.code", [300, 100], {"jsCode": "const q=$input.first().json.query||{}; if(q['hub.mode']==='subscribe'&&q['hub.verify_token']&&q['hub.verify_token']===$env.WA_VERIFY_TOKEN){ return [{json:{statusCode:200,body:q['hub.challenge']}}]; } return [{json:{statusCode:403,body:'Token mismatch'}}];"}, 2)
 node("resp-ver", "Respond Handshake Challenge", "n8n-nodes-base.respondToWebhook", [500, 100], {"respondWith": "text", "responseBody": "={{ $json.body }}", "options": {"responseCode": "={{ $json.statusCode }}"}}, 1)
 conn("WhatsApp Webhook Verification (GET)", "Verify Handshake Token")
 

@@ -5,7 +5,7 @@ from app.db.session import get_db
 from app.schemas.common import ApiResponse
 from app.schemas.voice import VoiceCallCreate, VoiceCallResponse
 from app.services.voice_service import voice_service
-from app.api.dependencies import get_current_patient, get_optional_patient
+from app.api.dependencies import get_current_patient, get_optional_patient, get_current_user
 from app.models.user import Patient, User
 
 router = APIRouter(prefix="/voice", tags=["AI Voice Calls"])
@@ -54,13 +54,17 @@ def request_voice_call(
 def get_my_voice_calls(
     patient_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
-    current_patient: Optional[Patient] = Depends(get_optional_patient),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_patient:
-        calls = voice_service.get_patient_voice_calls(db, current_patient.id)
-    elif patient_id:
-        calls = voice_service.get_patient_voice_calls(db, patient_id)
+    if current_user.role == "PATIENT":
+        target_pid = current_user.patient_profile.id if current_user.patient_profile else "__none__"
+        calls = voice_service.get_patient_voice_calls(db, target_pid)
+    elif current_user.role in ["ADMIN", "FRONT_DESK", "DOCTOR", "SUPER_ADMIN"]:
+        if patient_id:
+            calls = voice_service.get_patient_voice_calls(db, patient_id)
+        else:
+            calls = voice_service.get_all_voice_calls(db, status=status)
     else:
-        calls = voice_service.get_all_voice_calls(db, status=status)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     return ApiResponse(success=True, data=calls)

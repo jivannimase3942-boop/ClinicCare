@@ -1,4 +1,4 @@
-import random
+import secrets
 import smtplib
 import json
 import urllib.request
@@ -9,9 +9,10 @@ from email.mime.multipart import MIMEMultipart
 from typing import Optional, Tuple, Dict, Any, List
 from sqlalchemy.orm import Session
 from app.core.config import settings
-from app.core.security import verify_password, get_password_hash, create_access_token
+from app.core.security import verify_password, get_password_hash, create_access_token, validate_password_strength
 from app.core.roles import get_permissions_for_role
 from app.models.user import User, Patient, Doctor, Department, EmailVerification
+from app.services.email_service import email_service
 from app.schemas.auth import (
     UserRegister,
     UserLogin,
@@ -49,8 +50,8 @@ class AuthService:
             EmailVerification.is_verified == False
         ).delete()
 
-        # 4. Generate 6-digit numeric OTP and securely hash it
-        otp_code = f"{random.randint(100000, 999999)}"
+        # 4. Generate 6-digit numeric OTP using CSPRNG and securely hash it
+        otp_code = f"{secrets.SystemRandom().randint(100000, 999999)}"
         otp_hash = get_password_hash(otp_code)
         expires_at = now + timedelta(minutes=10)
 
@@ -66,37 +67,20 @@ class AuthService:
         db.add(ev)
         db.commit()
 
-        # 5. Dispatch email if SMTP is configured
-        email_sent = False
-        if settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD:
-            try:
-                msg = MIMEMultipart("alternative")
-                msg["Subject"] = f"Your ClinicCare Verification Code: {otp_code}"
-                msg["From"] = settings.SMTP_SENDER
-                msg["To"] = normalized_email
-
-                text_content = (
-                    f"Hello {full_name or 'Patient'},\n\n"
-                    f"Your ClinicCare 6-digit verification code is: {otp_code}\n"
-                    f"This code will expire in 10 minutes.\n\n"
-                    f"If you did not request this verification, please disregard this message.\n\n"
-                    f"Thank you,\nClinicCare Multispeciality Healthcare"
-                )
-                msg.attach(MIMEText(text_content, "plain"))
-
-                with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
-                    server.starttls()
-                    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                    server.send_message(msg)
-                email_sent = True
-            except Exception as e:
-                # Log without exposing the OTP
-                print(f"[ClinicCare] SMTP send notice for {normalized_email}: {e}")
+        # 5. Dispatch email via email_service
+        email_result = email_service.send_otp_email(
+            to_email=normalized_email,
+            otp_code=otp_code,
+            full_name=full_name,
+            purpose="account registration",
+        )
 
         result: Dict[str, Any] = {
             "email": normalized_email,
             "message": f"Verification code sent to {normalized_email}",
             "expires_in_minutes": 10,
+            "email_dispatched": email_result.get("dispatched", False),
+            "smtp_configured": email_result.get("smtp_configured", False),
         }
         # In non-production development environments where SMTP is unconfigured, provide dev code for testing
         if settings.ENVIRONMENT != "production" and (settings.DEBUG or not settings.SMTP_HOST):
@@ -159,6 +143,11 @@ class AuthService:
         if requested_role != "PATIENT":
             raise ValueError("Privileged and staff roles cannot be registered through public registration")
 
+        # Validate password strength
+        valid, err_msg = validate_password_strength(reg_data.password)
+        if not valid:
+            raise ValueError(err_msg or "Password does not meet security requirements")
+
         # If OTP is provided, verify it and consume single-use status
         if reg_data.otp:
             AuthService.verify_registration_otp(db, normalized_email, reg_data.otp)
@@ -199,6 +188,10 @@ class AuthService:
         existing = db.query(User).filter(User.email == normalized_email).first()
         if existing:
             raise ValueError("Email is already registered")
+
+        valid, err_msg = validate_password_strength(data.password)
+        if not valid:
+            raise ValueError(err_msg or "Password does not meet security requirements")
 
         # Verify and consume OTP
         AuthService.verify_registration_otp(db, normalized_email, data.otp)
@@ -246,6 +239,10 @@ class AuthService:
         if existing:
             raise ValueError("Email is already registered")
 
+        valid, err_msg = validate_password_strength(data.password)
+        if not valid:
+            raise ValueError(err_msg or "Password does not meet security requirements")
+
         # Verify and consume OTP
         AuthService.verify_registration_otp(db, normalized_email, data.otp)
         db.query(EmailVerification).filter(EmailVerification.email == normalized_email).delete()
@@ -287,7 +284,7 @@ class AuthService:
             EmailVerification.is_verified == False
         ).delete()
 
-        otp_code = f"{random.randint(100000, 999999)}"
+        otp_code = f"{secrets.SystemRandom().randint(100000, 999999)}"
         otp_hash = get_password_hash(otp_code)
         expires_at = now + timedelta(minutes=10)
 
@@ -303,34 +300,20 @@ class AuthService:
         db.add(ev)
         db.commit()
 
-        email_sent = False
-        if settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD:
-            try:
-                msg = MIMEMultipart("alternative")
-                msg["Subject"] = f"Your ClinicCare Login Code: {otp_code}"
-                msg["From"] = settings.SMTP_SENDER
-                msg["To"] = normalized_email
-
-                text_content = (
-                    f"Hello {user.full_name},\n\n"
-                    f"Your ClinicCare login code is: {otp_code}\n"
-                    f"This code will expire in 10 minutes.\n\n"
-                    f"ClinicCare Multispeciality Healthcare"
-                )
-                msg.attach(MIMEText(text_content, "plain"))
-
-                with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
-                    server.starttls()
-                    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                    server.send_message(msg)
-                email_sent = True
-            except Exception as e:
-                print(f"[ClinicCare] SMTP send notice for {normalized_email}: {e}")
+        # Dispatch email via email_service
+        email_result = email_service.send_otp_email(
+            to_email=normalized_email,
+            otp_code=otp_code,
+            full_name=user.full_name,
+            purpose="portal login",
+        )
 
         result: Dict[str, Any] = {
             "email": normalized_email,
             "message": f"Login code sent to {normalized_email}",
             "expires_in_minutes": 10,
+            "email_dispatched": email_result.get("dispatched", False),
+            "smtp_configured": email_result.get("smtp_configured", False),
         }
         if settings.ENVIRONMENT != "production" and (settings.DEBUG or not settings.SMTP_HOST):
             result["dev_code"] = otp_code
@@ -395,7 +378,7 @@ class AuthService:
 
         user = User(
             email=normalized_email,
-            password_hash=get_password_hash(f"google_oauth_{random.randint(100000, 999999)}"),
+            password_hash=get_password_hash(f"google_oauth_{secrets.token_urlsafe(32)}"),
             full_name=full_name,
             role=role_to_set,
             is_active=True,

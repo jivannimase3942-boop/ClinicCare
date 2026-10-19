@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     PROJECT_NAME: str = "ClinicCare"
     ENVIRONMENT: str = "development"
-    DEBUG: bool = True
+    DEBUG: bool = False
     PORT: int = 8000
     HOST: str = "0.0.0.0"
 
@@ -24,11 +24,21 @@ class Settings(BaseSettings):
 
     @field_validator("CORS_ORIGINS", mode="before")
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        default_origins = [
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:3000",
+            "http://localhost:8000",
+            "https://cliniccare-g3c6.onrender.com",
+        ]
         if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",")]
+            origins = [i.strip() for i in v.split(",") if i.strip() and i.strip() != "*"]
+            return origins or default_origins
         elif isinstance(v, list):
-            return v
-        return ["*"]
+            origins = [i.strip() if isinstance(i, str) else str(i) for i in v if i != "*"]
+            return origins or default_origins
+        return default_origins
 
     # Security & JWT
     JWT_SECRET: str = Field(default_factory=lambda: secrets.token_urlsafe(48))
@@ -61,12 +71,16 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
 
-    # Email & Alerts (SMTP / SendGrid / Postmark)
+    # Email & Alerts (SMTP / SendGrid / Postmark / Brevo / Gmail)
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
-    SMTP_SENDER: str = "alerts@cliniccarehospital.com"
+    SMTP_SENDER: Optional[str] = "alerts@cliniccarehospital.com"
+    SMTP_SENDER_NAME: str = "ClinicCare Healthcare"
+    SMTP_USE_TLS: bool = True
+    SMTP_USE_SSL: bool = False
+    SMTP_TIMEOUT: int = 10
     ALERT_EMAIL_TO: str = "admin@cliniccarehospital.com"
 
     # Hospital Info Defaults

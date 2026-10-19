@@ -5,8 +5,26 @@ from jose import jwt, JWTError
 from app.core.config import settings
 
 
+import re
+
+
+def validate_password_strength(password: str) -> tuple[bool, Optional[str]]:
+    """
+    Validates password strength according to healthcare application standards:
+    - Minimum 6 characters (recommended 8+)
+    - Maximum 128 characters to prevent bcrypt DoS
+    """
+    if not password or len(password) < 6:
+        return False, "Password must be at least 6 characters long"
+    if len(password) > 128:
+        return False, "Password cannot exceed 128 characters"
+    return True, None
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
+        if not plain_password or not hashed_password:
+            return False
         return bcrypt.checkpw(
             plain_password.encode("utf-8")[:72],
             hashed_password.encode("utf-8")
@@ -17,7 +35,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     pwd_bytes = password.encode("utf-8")[:72]
-    salt = bcrypt.gensalt()
+    # Use standard 12 rounds for balanced security & performance
+    salt = bcrypt.gensalt(rounds=12)
     return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
 
 

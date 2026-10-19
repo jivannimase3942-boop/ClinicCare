@@ -1,4 +1,5 @@
 import pytest
+from datetime import date, timedelta
 
 
 def test_departments_and_doctors_listing(client, seed_test_data):
@@ -30,11 +31,12 @@ def test_doctor_portal_workflow(client, seed_test_data):
     pat_token = pat_res.json()["data"]["access_token"]
     pat_headers = {"Authorization": f"Bearer {pat_token}"}
 
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
     book_res = client.post(
         "/api/appointments",
         json={
             "doctor_id": seed_test_data["doctor"].id,
-            "appointment_date": "2026-10-15",
+            "appointment_date": tomorrow,
             "appointment_time": "10:00",
             "reason": "Chest tightness",
         },

@@ -14,17 +14,27 @@ router = APIRouter(prefix="/reminders", tags=["Follow-Up Reminders"])
 @router.get("", response_model=ApiResponse[List[FollowUpReminderResponse]])
 def list_reminders(
     patient_id: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
+    status_param: Optional[str] = Query(None, alias="status"),
     current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
-    if current_user and current_user.role == "PATIENT":
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to view reminders",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if current_user.role == "PATIENT":
         target_patient_id = current_user.patient_profile.id if current_user.patient_profile else "__none__"
-        reminders = reminder_service.get_reminders(db, patient_id=target_patient_id, status=status)
+        reminders = reminder_service.get_reminders(db, patient_id=target_patient_id, status=status_param)
         return ApiResponse(success=True, data=reminders)
 
-    reminders = reminder_service.get_reminders(db, patient_id=patient_id, status=status)
-    return ApiResponse(success=True, data=reminders)
+    if current_user.role in ["ADMIN", "FRONT_DESK", "DOCTOR", "SUPER_ADMIN"]:
+        reminders = reminder_service.get_reminders(db, patient_id=patient_id, status=status_param)
+        return ApiResponse(success=True, data=reminders)
+
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
 
 @router.post("", response_model=ApiResponse[FollowUpReminderResponse], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_roles(["ADMIN", "FRONT_DESK", "DOCTOR"]))])
@@ -36,7 +46,7 @@ def create_reminder(data: FollowUpReminderCreate, db: Session = Depends(get_db))
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/{id}/dispatch", response_model=ApiResponse[FollowUpReminderResponse])
+@router.post("/{id}/dispatch", response_model=ApiResponse[FollowUpReminderResponse], dependencies=[Depends(require_roles(["ADMIN", "FRONT_DESK", "DOCTOR"]))])
 def trigger_dispatch(id: str, db: Session = Depends(get_db)):
     try:
         rem = reminder_service.trigger_simulated_dispatch(db, id)

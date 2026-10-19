@@ -14,8 +14,8 @@ from app.schemas.blood import (
     BloodRequestMatchPayload,
 )
 from app.services.blood_service import blood_service
-from app.api.dependencies import require_roles, get_optional_patient
-from app.models.user import Patient
+from app.api.dependencies import require_roles, get_optional_patient, get_current_user
+from app.models.user import Patient, User
 
 router = APIRouter(prefix="/blood", tags=["Blood Banks & Availability"])
 
@@ -68,10 +68,16 @@ def list_blood_requests(
     blood_group: Optional[str] = Query(None),
     urgency: Optional[str] = Query(None),
     patient_id: Optional[str] = Query(None),
-    current_patient: Optional[Patient] = Depends(get_optional_patient),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    target_patient_id = current_patient.id if current_patient else patient_id
+    if current_user.role == "PATIENT":
+        target_patient_id = current_user.patient_profile.id if current_user.patient_profile else "__none__"
+    elif current_user.role in ["ADMIN", "FRONT_DESK", "DOCTOR", "SUPER_ADMIN"]:
+        target_patient_id = patient_id
+    else:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     requests = blood_service.get_blood_requests(
         db, status=status, blood_group=blood_group, urgency=urgency, patient_id=target_patient_id
     )

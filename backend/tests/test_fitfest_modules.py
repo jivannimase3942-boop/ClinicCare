@@ -37,7 +37,7 @@ def test_fitfest_ambulances_flow(client, seed_test_data):
     assert req_data["status"] in ["assigned", "requested"]
 
     # 3. List requests
-    list_resp = client.get("/api/ambulances/requests")
+    list_resp = client.get("/api/ambulances/requests", headers=headers)
     assert list_resp.status_code == 200
     assert len(list_resp.json()["data"]) >= 1
 
@@ -95,7 +95,7 @@ def test_fitfest_blood_bank_flow(client, seed_test_data):
     assert req_data["status"] == "submitted"
 
     # 5. List blood requests
-    list_req_resp = client.get("/api/blood/requests")
+    list_req_resp = client.get("/api/blood/requests", headers=headers)
     assert list_req_resp.status_code == 200
     assert len(list_req_resp.json()["data"]) >= 1
 
@@ -138,13 +138,13 @@ def test_fitfest_patient_search_and_visits(client, seed_test_data):
     pat_user = seed_test_data["patient_user"]
 
     # 1. Search by name
-    resp = client.get(f"/api/patients?search={pat_user.full_name[:4]}")
+    resp = client.get(f"/api/patients?search={pat_user.full_name[:4]}", headers=headers)
     assert resp.status_code == 200
     results = resp.json()["data"]
     assert len(results) >= 1
 
     # 2. Get patient visits
-    v_resp = client.get(f"/api/patients/{pat.id}/visits")
+    v_resp = client.get(f"/api/patients/{pat.id}/visits", headers=headers)
     assert v_resp.status_code == 200
 
     # 3. Record visit
@@ -195,7 +195,7 @@ def test_fitfest_emergencies_and_reminders(client, seed_test_data):
     assert em_resp.json()["data"]["priority"] in ["emergency", "critical"]
 
     # 3. List reminders
-    rem_resp = client.get("/api/reminders")
+    rem_resp = client.get("/api/reminders", headers=headers)
     assert rem_resp.status_code == 200
 
     # 4. Schedule reminder
@@ -214,7 +214,7 @@ def test_fitfest_emergencies_and_reminders(client, seed_test_data):
     rem_id = sch_resp.json()["data"]["id"]
 
     # 5. Dispatch reminder
-    disp_resp = client.post(f"/api/reminders/{rem_id}/dispatch")
+    disp_resp = client.post(f"/api/reminders/{rem_id}/dispatch", headers=headers)
     assert disp_resp.status_code == 200
     assert disp_resp.json()["data"]["status"] == "sent_demo"
 

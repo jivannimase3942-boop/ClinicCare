@@ -52,12 +52,19 @@ def get_report(
     current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to view medical reports",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     report = report_service.get_report_by_id(db, report_id=id)
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
 
     # Patient privacy check: Patient can only view their own medical report
-    if current_user and current_user.role == "PATIENT":
+    if current_user.role == "PATIENT":
         if not current_user.patient_profile or report.patient_id != current_user.patient_profile.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

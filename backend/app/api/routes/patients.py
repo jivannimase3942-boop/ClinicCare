@@ -24,8 +24,15 @@ def search_patients(
     current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to search patient registry",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # Patient role is strictly forbidden from browsing general patient registry
-    if current_user and current_user.role == "PATIENT":
+    if current_user.role == "PATIENT":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Patients cannot browse the hospital patient registry"
@@ -41,8 +48,15 @@ def get_patient_profile(
     current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to view patient profile",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # Patient privacy check: Patient can only view their own profile
-    if current_user and current_user.role == "PATIENT":
+    if current_user.role == "PATIENT":
         if not current_user.patient_profile or current_user.patient_profile.id != id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -62,11 +76,18 @@ def update_patient_profile(
     current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to update patient profile",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     try:
-        if current_user and current_user.role == "PATIENT":
+        if current_user.role == "PATIENT":
             if not current_user.patient_profile or current_user.patient_profile.id != id:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Cannot edit another patient's profile")
-        elif current_user and current_user.role not in ["ADMIN", "FRONT_DESK", "DOCTOR"]:
+        elif current_user.role not in ["ADMIN", "FRONT_DESK", "DOCTOR", "SUPER_ADMIN"]:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
         updated = patient_service.update_patient_profile(db, id, data)
@@ -81,8 +102,15 @@ def get_patient_visits(
     current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to view visit history",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # Patient privacy check: Patient can only view their own visits
-    if current_user and current_user.role == "PATIENT":
+    if current_user.role == "PATIENT":
         if not current_user.patient_profile or current_user.patient_profile.id != id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

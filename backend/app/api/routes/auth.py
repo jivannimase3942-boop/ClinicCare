@@ -17,6 +17,13 @@ from app.schemas.auth import (
     LoginVerifyOtpRequest,
 )
 from app.services.auth_service import auth_service
+from app.services.email_service import (
+    email_service,
+    SMTPNotConfiguredError,
+    SMTPConnectionError,
+    SMTPAuthenticationError,
+    SMTPDeliveryError,
+)
 from app.core.security import verify_password, get_password_hash
 from app.api.dependencies import get_current_user
 from app.models.user import User
@@ -24,11 +31,26 @@ from app.models.user import User
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
+@router.get("/smtp-status", response_model=ApiResponse[dict])
+def get_smtp_status():
+    """Returns safe diagnostic configuration status of the SMTP email service."""
+    status_data = email_service.get_status()
+    return ApiResponse(
+        success=True,
+        message="SMTP service status retrieved",
+        data=status_data,
+    )
+
+
 @router.post("/register/send-otp", response_model=ApiResponse[dict])
 def send_registration_otp(payload: SendOtpRequest, db: Session = Depends(get_db)):
     try:
         res = auth_service.send_registration_otp(db, email=payload.email, full_name=payload.full_name)
         return ApiResponse(success=True, message=res["message"], data=res)
+    except SMTPNotConfiguredError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    except (SMTPConnectionError, SMTPAuthenticationError, SMTPDeliveryError) as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
@@ -122,6 +144,10 @@ def send_login_otp(payload: LoginSendOtpRequest, db: Session = Depends(get_db)):
     try:
         res = auth_service.send_login_otp(db, email=payload.email)
         return ApiResponse(success=True, message=res["message"], data=res)
+    except SMTPNotConfiguredError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    except (SMTPConnectionError, SMTPAuthenticationError, SMTPDeliveryError) as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:

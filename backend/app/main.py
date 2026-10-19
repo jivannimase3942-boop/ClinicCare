@@ -6,6 +6,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.core.config import settings
+from app.core.rate_limit import RateLimitMiddleware
+from app.core.security_headers import SecurityHeadersMiddleware
+from app.core.sanitizer import InputSanitizationMiddleware
 from app.db.session import engine, SessionLocal, Base, get_db
 import app.db.base  # ensure all models are registered with Base metadata
 from app.services.error_service import error_service
@@ -111,15 +114,25 @@ if isinstance(settings.CORS_ORIGINS, list):
 elif isinstance(settings.CORS_ORIGINS, str) and settings.CORS_ORIGINS != "*":
     for origin in settings.CORS_ORIGINS.split(","):
         o = origin.strip()
-        if o and o not in cors_origins:
+        if o and o not in cors_origins and o != "*":
             cors_origins.append(o)
 
+# 1. Input Sanitization (Sanitizes POST/PUT/PATCH JSON bodies against XSS)
+app.add_middleware(InputSanitizationMiddleware)
+
+# 2. Rate Limiting (Protects auth, AI, and APIs from brute force and denial of service)
+app.add_middleware(RateLimitMiddleware)
+
+# 3. Security Headers (Enforces OWASP security headers: nosniff, frame-ancestors, CSP, HSTS)
+app.add_middleware(SecurityHeadersMiddleware)
+
+# 4. CORS Middleware (Outermost middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
     allow_headers=["*"],
 )
 
@@ -215,6 +228,7 @@ def health_check():
         "database": db_status,
         "gemini_ai_configured": bool(settings.GEMINI_API_KEY),
         "whatsapp_configured": bool(settings.WA_PHONE_NUMBER_ID and settings.WA_ACCESS_TOKEN),
+        "smtp_configured": bool(settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD),
     }
 
 

@@ -5,7 +5,7 @@ from app.db.session import get_db
 from app.schemas.common import ApiResponse
 from app.schemas.escalation import EscalationCreate, EscalationResponse
 from app.services.escalation_service import escalation_service
-from app.api.dependencies import get_current_patient, get_optional_patient
+from app.api.dependencies import get_current_patient, get_optional_patient, get_current_user
 from app.models.user import Patient, User
 
 router = APIRouter(prefix="/escalations", tags=["Escalations"])
@@ -68,13 +68,17 @@ def get_my_escalations(
     patient_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
-    current_patient: Optional[Patient] = Depends(get_optional_patient),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_patient:
-        escs = escalation_service.get_patient_escalations(db, current_patient.id)
-    elif patient_id:
-        escs = escalation_service.get_patient_escalations(db, patient_id)
+    if current_user.role == "PATIENT":
+        target_pid = current_user.patient_profile.id if current_user.patient_profile else "__none__"
+        escs = escalation_service.get_patient_escalations(db, target_pid)
+    elif current_user.role in ["ADMIN", "FRONT_DESK", "DOCTOR", "SUPER_ADMIN"]:
+        if patient_id:
+            escs = escalation_service.get_patient_escalations(db, patient_id)
+        else:
+            escs = escalation_service.get_all_escalations(db, status=status, priority=priority)
     else:
-        escs = escalation_service.get_all_escalations(db, status=status, priority=priority)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     return ApiResponse(success=True, data=escs)

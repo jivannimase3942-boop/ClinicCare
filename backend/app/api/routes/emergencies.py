@@ -11,7 +11,7 @@ from app.schemas.emergency import (
 from app.services.emergency_service import emergency_service
 from app.services.escalation_service import escalation_service
 from app.api.dependencies import require_roles, get_optional_patient
-from app.models.user import Patient
+from app.models.user import Patient, User
 
 router = APIRouter(prefix="/emergencies", tags=["Emergency Coordination"])
 
@@ -38,7 +38,10 @@ def create_emergency_request(
 
 
 @router.get("", response_model=ApiResponse[List[EmergencyRequestResponse]])
-def list_emergencies(db: Session = Depends(get_db)):
+def list_emergencies(
+    current_user: User = Depends(require_roles(["ADMIN", "FRONT_DESK", "DOCTOR", "SUPER_ADMIN"])),
+    db: Session = Depends(get_db)
+):
     from app.models.escalation import Escalation
     escs = db.query(Escalation).filter(Escalation.reason.in_(["emergency", "medical_question"])).order_by(Escalation.created_at.desc()).all()
     results = []

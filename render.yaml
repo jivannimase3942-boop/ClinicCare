@@ -15,6 +15,20 @@ services:
         value: production
       - key: CORS_ORIGINS
         value: "https://cliniccare-g3c6.onrender.com,http://localhost:5173,http://localhost:3000"
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_SENDER
+        sync: false
+      - key: SMTP_USE_TLS
+        value: "true"
+      - key: SMTP_USE_SSL
+        value: "false"
 
   - type: static
     name: cliniccare
