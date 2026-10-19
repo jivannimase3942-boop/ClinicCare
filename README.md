@@ -148,9 +148,42 @@ Key configurable environment variables include:
 - `DATABASE_URL`: Relational database connection string (`sqlite:///./hospital.db` or `postgresql://...`).
 - `GEMINI_API_KEY`: Google Gemini API key for conversational AI assistance.
 - `WA_PHONE_NUMBER_ID` & `WA_ACCESS_TOKEN`: Meta WhatsApp Cloud API credentials.
+- `EMAIL_PROVIDER`: Email dispatch transport (`resend` for HTTPS API, or `smtp` for legacy SMTP).
+- `RESEND_API_KEY`: Secret API key for Resend HTTPS API (e.g. `re_...`).
+- `RESEND_FROM_EMAIL`: Configured sender email address / header (e.g. `ClinicCare Healthcare <alerts@yourverifieddomain.com>`).
 - `VITE_API_BASE_URL`: Frontend API base URL (defaults to `http://localhost:8000/api`).
 
 *(Never commit `.env` or production credentials to source control).*
+
+### Email & OTP Delivery Architecture (Resend HTTPS API)
+
+ClinicCare utilizes Resend's HTTPS Email API (`POST https://api.resend.com/emails`) as its primary email dispatch transport, eliminating SMTP timeout and port-blocking failures commonly encountered on Render Free and serverless cloud environments (where outbound TCP connections on ports 587, 465, and 25 are restricted).
+
+#### 1. Configuring Render Environment Variables
+In your Render Dashboard for `cliniccare-backend`:
+1. Navigate to **Environment**.
+2. Set `EMAIL_PROVIDER` to `resend`.
+3. Add `RESEND_API_KEY` with your secret key from [Resend](https://resend.com/api-keys).
+4. Set `RESEND_FROM_EMAIL` (e.g. `ClinicCare Healthcare <alerts@yourverifieddomain.com>`).
+5. Save changes. Render will automatically redeploy the backend with the new HTTPS transport.
+
+#### 2. Verified Sender & Domain Requirements
+- **Testing**: In non-production or evaluation environments, Resend allows sending from `onboarding@resend.dev` only to the email address registered with the Resend account.
+- **Production Delivery**: For unrestricted email dispatch to arbitrary patient and doctor recipients, a custom domain must be verified in your Resend Dashboard (adding required SPF, DKIM, and DMARC DNS records). Once verified, set `RESEND_FROM_EMAIL="ClinicCare Healthcare <alerts@yourdomain.com>"`.
+
+#### 3. Testing Registration & Login OTP Delivery
+1. Ensure `EMAIL_PROVIDER=resend` and `RESEND_API_KEY` are populated.
+2. Check diagnostics via `GET /api/auth/email-status` or `GET /health` (`"email_configured": true`, `"email_provider": "resend"`).
+3. Request a registration OTP via `POST /api/auth/register/send-otp` with `{"email": "<recipient_email>", "full_name": "Test Patient"}`.
+4. Verify the 6-digit numeric verification code received in the inbox via `POST /api/auth/register/verify-otp`.
+5. In non-production environments with unconfigured email, a development fallback `dev_code` is returned for developer convenience. In production (`is_production=True`), `dev_code` is strictly blocked and never returned.
+
+#### 4. Safe Troubleshooting for Provider Errors
+- **HTTP 502 with "Resend authentication failed (HTTP 401/403)"**: The provided `RESEND_API_KEY` is invalid or lacks sending permissions. Verify the key in the Resend dashboard. Secrets are never leaked in error messages.
+- **HTTP 502 with "Resend validation error (HTTP 422)"**: The sender address or domain is unverified, or the recipient format is invalid. Check `RESEND_FROM_EMAIL` matches a verified domain.
+- **HTTP 502 with "Resend rate limit exceeded (HTTP 429)"**: The API request rate exceeded provider thresholds. Resend allows 2 requests/sec on free tiers. Wait before retrying.
+- **HTTP 502 with "Connection to Resend API timed out"**: Outbound HTTPS network latency or transient provider unreachable. Retry the request.
+- **HTTP 503 with "Resend email service is not configured"**: Production environment is active but `RESEND_API_KEY` is missing from environment variables.
 
 ## Testing
 
@@ -162,7 +195,7 @@ pytest -v
 ```
 
 **Verified Test Result**:
-- `50 passed`; one third-party deprecation warning.
+- `129 passed`; one third-party deprecation warning. Full suite passing across all clinical, auth, billing, phase 1-4, and Resend HTTPS integration tests.
 
 Frontend production build verification:
 

@@ -35,26 +35,22 @@ class ErrorService:
 
     @staticmethod
     def send_error_alert_email(subject: str, body: str) -> Dict[str, Any]:
-        """Sends error alert email via SMTP if configured, or reports controlled config state."""
-        if not (settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD):
+        """Sends error alert email via active email provider (Resend HTTPS API or SMTP) if configured."""
+        from app.services.email_service import email_service
+        if not email_service.is_configured():
             return {
                 "status": "unconfigured",
-                "message": "SMTP email credentials not configured. Error alert captured in database error_logs.",
+                "message": "Email service credentials not configured. Error alert captured in database error_logs.",
                 "recipient": settings.ALERT_EMAIL_TO,
                 "subject": subject
             }
         
         try:
-            msg = MIMEMultipart()
-            msg["From"] = settings.SMTP_SENDER
-            msg["To"] = settings.ALERT_EMAIL_TO
-            msg["Subject"] = subject
-            msg.attach(MIMEText(body, "plain"))
-
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-                server.starttls()
-                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                server.send_message(msg)
+            email_service.send_email(
+                to_email=settings.ALERT_EMAIL_TO,
+                subject=subject,
+                text_content=body,
+            )
             return {"status": "sent", "recipient": settings.ALERT_EMAIL_TO}
         except Exception as e:
             return {"status": "failed", "error": str(e)}
