@@ -142,5 +142,6 @@ class EmailVerification(Base):
     attempts = Column(Integer, default=0, nullable=False)
     max_attempts = Column(Integer, default=5, nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
+    purpose = Column(String(50), default="registration", nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)

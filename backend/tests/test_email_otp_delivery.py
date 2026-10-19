@@ -28,7 +28,17 @@ from app.services.email_service import (
     ResendNotConfiguredError,
     ResendConnectionError,
     ResendAuthenticationError,
+    ResendRestrictedRecipientError,
+    ResendValidationError,
+    ResendRateLimitError,
     ResendDeliveryError,
+    BrevoNotConfiguredError,
+    BrevoConnectionError,
+    BrevoAuthenticationError,
+    BrevoRestrictedSenderError,
+    BrevoValidationError,
+    BrevoRateLimitError,
+    BrevoDeliveryError,
 )
 from app.models.user import User, EmailVerification
 from app.core.security import get_password_hash
@@ -39,10 +49,14 @@ def restore_settings():
     """Ensure settings are restored after each test."""
     orig_env = settings.ENVIRONMENT
     orig_provider = getattr(settings, "EMAIL_PROVIDER", "resend")
+    orig_brevo_key = getattr(settings, "BREVO_API_KEY", None)
+    orig_brevo_sender = getattr(settings, "BREVO_SENDER_EMAIL", None)
+    orig_brevo_name = getattr(settings, "BREVO_SENDER_NAME", "ClinicCare Healthcare")
     orig_resend_key = getattr(settings, "RESEND_API_KEY", None)
     orig_resend_from = getattr(settings, "RESEND_FROM_EMAIL", None)
     orig_resend_url = getattr(settings, "RESEND_API_URL", "https://api.resend.com/emails")
     orig_resend_timeout = getattr(settings, "RESEND_TIMEOUT", 10.0)
+    orig_google_client_id = getattr(settings, "GOOGLE_CLIENT_ID", None)
     orig_host = settings.SMTP_HOST
     orig_port = settings.SMTP_PORT
     orig_user = settings.SMTP_USER
@@ -56,10 +70,14 @@ def restore_settings():
     yield
     settings.ENVIRONMENT = orig_env
     settings.EMAIL_PROVIDER = orig_provider
+    settings.BREVO_API_KEY = orig_brevo_key
+    settings.BREVO_SENDER_EMAIL = orig_brevo_sender
+    settings.BREVO_SENDER_NAME = orig_brevo_name
     settings.RESEND_API_KEY = orig_resend_key
     settings.RESEND_FROM_EMAIL = orig_resend_from
     settings.RESEND_API_URL = orig_resend_url
     settings.RESEND_TIMEOUT = orig_resend_timeout
+    settings.GOOGLE_CLIENT_ID = orig_google_client_id
     settings.SMTP_HOST = orig_host
     settings.SMTP_PORT = orig_port
     settings.SMTP_USER = orig_user
@@ -456,6 +474,10 @@ def test_5_resend_http_401_403_auth_failure(client, db_session):
     mock_401.json.return_value = {"statusCode": 401, "message": "API key is invalid", "name": "invalid_api_key"}
 
     with patch.object(EmailService, "_execute_resend_post", return_value=mock_401):
+        with pytest.raises(ResendAuthenticationError) as exc:
+            EmailService.send_email(to_email=test_email, subject="T", text_content="B")
+        assert "Resend authentication failed" in str(exc.value)
+
         resp = client.post(
             "/api/auth/register/send-otp",
             json={"email": test_email, "full_name": "Auth User"},
@@ -463,18 +485,47 @@ def test_5_resend_http_401_403_auth_failure(client, db_session):
         assert resp.status_code == 502
         assert "Resend authentication failed" in resp.json()["detail"]
 
-    # Test HTTP 403
+
+def test_5b_resend_http_403_restricted_recipient_domain(client, db_session):
+    """5b. HTTP 403 provider restriction (sandbox test recipient or unverified domain) returns HTTP 403."""
+    test_email = "external_patient_403@hospital.com"
+    db_session.query(EmailVerification).filter(EmailVerification.email == test_email).delete()
+    db_session.commit()
+
+    settings.ENVIRONMENT = "production"
+    settings.EMAIL_PROVIDER = "resend"
+    settings.RESEND_API_KEY = "re_valid_key"
+
+    # Simulate Resend production restriction error when sending to non-owner email
     mock_403 = MagicMock(status_code=403)
-    mock_403.json.return_value = {"statusCode": 403, "message": "Restricted API key", "name": "restricted_api_key"}
+    mock_403.json.return_value = {
+        "statusCode": 403,
+        "message": (
+            "You can only send testing emails to your own email address. "
+            "To send emails to other recipients, please verify a domain at resend.com/domains"
+        ),
+        "name": "validation_error"
+    }
 
     with patch.object(EmailService, "_execute_resend_post", return_value=mock_403):
-        with pytest.raises(ResendAuthenticationError) as exc:
+        # Service level
+        with pytest.raises(ResendRestrictedRecipientError) as exc:
             EmailService.send_email(to_email=test_email, subject="T", text_content="B")
-        assert "Resend authentication failed" in str(exc.value)
+        assert "Resend recipient delivery restricted" in str(exc.value)
+
+        # Registration route level
+        resp_reg = client.post(
+            "/api/auth/register/send-otp",
+            json={"email": test_email, "full_name": "Restricted User"},
+        )
+        assert resp_reg.status_code == 403
+        err_msg = resp_reg.json()["detail"]
+        assert "Email verification delivery is restricted" in err_msg
+        assert "resend.com/domains" not in err_msg  # internal URL not exposed to client
 
 
 def test_6_resend_http_422_sender_validation_failure(client, db_session):
-    """6. HTTP 422 sender validation failure (unverified domain) returns HTTP 502."""
+    """6. HTTP 422 sender validation failure returns HTTP 422."""
     test_email = "unverified_domain_test@hospital.com"
     db_session.query(EmailVerification).filter(EmailVerification.email == test_email).delete()
     db_session.commit()
@@ -491,16 +542,19 @@ def test_6_resend_http_422_sender_validation_failure(client, db_session):
     }
 
     with patch.object(EmailService, "_execute_resend_post", return_value=mock_422):
+        with pytest.raises(ResendValidationError):
+            EmailService.send_email(to_email=test_email, subject="T", text_content="B")
+
         resp = client.post(
             "/api/auth/register/send-otp",
             json={"email": test_email, "full_name": "Domain User"},
         )
-        assert resp.status_code == 502
+        assert resp.status_code == 422
         assert "Resend validation error" in resp.json()["detail"]
 
 
 def test_7_resend_http_429_rate_limit(client, db_session):
-    """7. HTTP 429 provider rate limits return HTTP 502."""
+    """7. HTTP 429 provider rate limits return HTTP 429."""
     test_email = "rate_limit_test@hospital.com"
     db_session.query(EmailVerification).filter(EmailVerification.email == test_email).delete()
     db_session.commit()
@@ -517,12 +571,15 @@ def test_7_resend_http_429_rate_limit(client, db_session):
     }
 
     with patch.object(EmailService, "_execute_resend_post", return_value=mock_429):
+        with pytest.raises(ResendRateLimitError):
+            EmailService.send_email(to_email=test_email, subject="T", text_content="B")
+
         resp = client.post(
             "/api/auth/register/send-otp",
             json={"email": test_email, "full_name": "Rate User"},
         )
-        assert resp.status_code == 502
-        assert "Resend rate limit exceeded" in resp.json()["detail"]
+        assert resp.status_code == 429
+        assert "Email provider rate limit reached" in resp.json()["detail"]
 
 
 def test_8_resend_http_5xx_provider_error(client, db_session):
@@ -850,6 +907,524 @@ def test_15_status_and_health_endpoints_report_provider_configuration_correctly(
     assert h_smtp_data["resend_configured"] is False
     assert h_smtp_data["smtp_configured"] is True
     assert h_smtp_data["email_provider"] == "smtp"
+
+
+def test_16_purpose_isolation_registration_and_login_otps(client, db_session):
+    """16. Purpose isolation: Registration OTP cannot be used for login; Login OTP cannot be used for registration."""
+    test_email = "purpose_isolation@hospital.com"
+    db_session.query(EmailVerification).filter(EmailVerification.email == test_email).delete()
+    u = db_session.query(User).filter(User.email == test_email).first()
+    if not u:
+        u = User(
+            email=test_email,
+            password_hash=get_password_hash("Password@123"),
+            full_name="Purpose User",
+            role="PATIENT",
+            is_active=True,
+        )
+        db_session.add(u)
+        db_session.commit()
+
+    settings.ENVIRONMENT = "production"
+    settings.EMAIL_PROVIDER = "resend"
+    settings.RESEND_API_KEY = "re_valid_key"
+
+    captured_code = None
+    def mock_post(api_url, headers, payload, timeout):
+        nonlocal captured_code
+        text = payload.get("text", "")
+        for word in text.split():
+            if len(word) == 6 and word.isdigit():
+                captured_code = word
+                break
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"id": "resend_purpose_123"}
+        return resp
+
+    with patch.object(EmailService, "_execute_resend_post", side_effect=mock_post):
+        # 1. Generate registration OTP
+        reg_email = "purpose_reg_only@hospital.com"
+        db_session.query(EmailVerification).filter(EmailVerification.email == reg_email).delete()
+        db_session.commit()
+
+        resp_send_reg = client.post(
+            "/api/auth/register/send-otp",
+            json={"email": reg_email, "full_name": "Reg Purpose"},
+        )
+        assert resp_send_reg.status_code == 200
+        reg_otp = captured_code
+
+        # Attempt to use Registration OTP for login on registered user
+        resp_bad_login = client.post(
+            "/api/auth/login/verify-otp",
+            json={"email": reg_email, "otp": reg_otp},
+        )
+        assert resp_bad_login.status_code in (400, 404)
+
+        # 2. Generate login OTP
+        resp_send_login = client.post(
+            "/api/auth/login/send-otp",
+            json={"email": test_email},
+        )
+        assert resp_send_login.status_code == 200
+        login_otp = captured_code
+
+        # Attempt to use Login OTP for registration verification
+        resp_bad_reg = client.post(
+            "/api/auth/register/verify-otp",
+            json={"email": test_email, "otp": login_otp},
+        )
+        assert resp_bad_reg.status_code == 400
+
+
+def test_17_concurrent_duplicate_registration_safety(client, db_session):
+    """17. Concurrent duplicate registration safely rolls back and reports clean error without HTTP 500."""
+    from app.services.auth_service import AuthService
+    from app.schemas.auth import UserRegister
+
+    dup_email = "concurrent_duplicate@hospital.com"
+    db_session.query(User).filter(User.email == dup_email).delete()
+    db_session.query(EmailVerification).filter(EmailVerification.email == dup_email).delete()
+    db_session.commit()
+
+    reg_payload = UserRegister(
+        email=dup_email,
+        password="Password@123",
+        full_name="Duplicate Patient",
+        role="PATIENT",
+    )
+
+    # First registration succeeds
+    user1 = AuthService.register_user(db_session, reg_payload)
+    assert user1.id is not None
+
+    # Immediate second registration attempt raises ValueError without 500
+    with pytest.raises(ValueError) as exc:
+        AuthService.register_user(db_session, reg_payload)
+    assert "already registered" in str(exc.value)
+
+
+def test_18_login_otp_defense_against_account_enumeration(client, db_session):
+    """18. Non-existent email in login OTP returns a defensive response to prevent account enumeration."""
+    phantom_email = "phantom_nonexistent_user@hospital.com"
+    db_session.query(User).filter(User.email == phantom_email).delete()
+    db_session.commit()
+
+    resp = client.post(
+        "/api/auth/login/send-otp",
+        json={"email": phantom_email},
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["email"] == phantom_email
+    assert "If an active account is registered" in data["message"]
+    assert "dev_code" not in data
+
+
+def test_19_brevo_successful_dispatch_to_any_recipient(client, db_session):
+    """19. Brevo HTTPS API sends OTP to any recipient (including friends/external emails) without a custom domain."""
+    test_email = "friend_external_patient@example.com"
+    db_session.query(EmailVerification).filter(EmailVerification.email == test_email).delete()
+    db_session.commit()
+
+    settings.ENVIRONMENT = "production"
+    settings.EMAIL_PROVIDER = "brevo"
+    settings.BREVO_API_KEY = "xkeysib_test_secret_key"
+    settings.BREVO_SENDER_EMAIL = "verified_clinic@gmail.com"
+
+    mock_resp = MagicMock(status_code=201)
+    mock_resp.json.return_value = {"messageId": "<20261019.brevo.test@smtp-relay.mailin.fr>"}
+
+    with patch.object(EmailService, "_execute_brevo_post", return_value=mock_resp) as mock_post:
+        resp = client.post(
+            "/api/auth/register/send-otp",
+            json={"email": test_email, "full_name": "Friend User"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["email"] == test_email
+        assert data["provider"] == "brevo"
+        assert "dev_code" not in data
+
+        # Check payload delivered to Brevo API
+        mock_post.assert_called_once()
+        _, kwargs = mock_post.call_args
+        payload = kwargs["payload"]
+        assert payload["sender"]["email"] == "verified_clinic@gmail.com"
+        assert payload["to"][0]["email"] == test_email
+
+
+def test_20_brevo_http_401_invalid_api_key(client, db_session):
+    """20. Brevo HTTP 401 returns HTTP 502 with sanitized message."""
+    test_email = "brevo_auth_fail@hospital.com"
+    settings.ENVIRONMENT = "production"
+    settings.EMAIL_PROVIDER = "brevo"
+    settings.BREVO_API_KEY = "xkeysib_invalid_key"
+    settings.BREVO_SENDER_EMAIL = "sender@gmail.com"
+
+    mock_401 = MagicMock(status_code=401)
+    mock_401.json.return_value = {"code": "unauthorized", "message": "Key not found"}
+
+    with patch.object(EmailService, "_execute_brevo_post", return_value=mock_401):
+        with pytest.raises(BrevoAuthenticationError):
+            EmailService.send_email(to_email=test_email, subject="Test", text_content="Body")
+
+        resp = client.post(
+            "/api/auth/register/send-otp",
+            json={"email": test_email, "full_name": "Fail User"},
+        )
+        assert resp.status_code == 502
+        assert "Brevo authentication failed" in resp.json()["detail"]
+
+
+def test_21_brevo_http_403_unverified_sender(client, db_session):
+    """21. Brevo HTTP 403 (sender not verified in Brevo console) returns HTTP 403."""
+    test_email = "brevo_unverified_sender@hospital.com"
+    settings.ENVIRONMENT = "production"
+    settings.EMAIL_PROVIDER = "brevo"
+    settings.BREVO_API_KEY = "xkeysib_valid_key"
+    settings.BREVO_SENDER_EMAIL = "unverified_sender@gmail.com"
+
+    mock_403 = MagicMock(status_code=403)
+    mock_403.json.return_value = {"code": "permission_denied", "message": "Sender is not verified"}
+
+    with patch.object(EmailService, "_execute_brevo_post", return_value=mock_403):
+        with pytest.raises(BrevoRestrictedSenderError):
+            EmailService.send_email(to_email=test_email, subject="Test", text_content="Body")
+
+        resp = client.post(
+            "/api/auth/register/send-otp",
+            json={"email": test_email, "full_name": "Fail Sender"},
+        )
+        assert resp.status_code == 403
+        assert "sender email or domain is verified" in resp.json()["detail"]
+
+
+def test_22_brevo_http_400_validation_error(client, db_session):
+    """22. Brevo HTTP 400 validation error returns HTTP 422."""
+    test_email = "brevo_invalid_schema@hospital.com"
+    settings.ENVIRONMENT = "production"
+    settings.EMAIL_PROVIDER = "brevo"
+    settings.BREVO_API_KEY = "xkeysib_valid_key"
+    settings.BREVO_SENDER_EMAIL = "sender@gmail.com"
+
+    mock_400 = MagicMock(status_code=400)
+    mock_400.json.return_value = {"code": "invalid_parameter", "message": "Invalid email address format"}
+
+    with patch.object(EmailService, "_execute_brevo_post", return_value=mock_400):
+        with pytest.raises(BrevoValidationError):
+            EmailService.send_email(to_email=test_email, subject="Test", text_content="Body")
+
+        resp = client.post(
+            "/api/auth/register/send-otp",
+            json={"email": test_email, "full_name": "Bad Schema"},
+        )
+        assert resp.status_code == 422
+
+
+def test_23_brevo_http_429_rate_limit(client, db_session):
+    """23. Brevo HTTP 429 returns HTTP 429 with clear retry notice."""
+    test_email = "brevo_rate_limit@hospital.com"
+    settings.ENVIRONMENT = "production"
+    settings.EMAIL_PROVIDER = "brevo"
+    settings.BREVO_API_KEY = "xkeysib_valid_key"
+    settings.BREVO_SENDER_EMAIL = "sender@gmail.com"
+
+    mock_429 = MagicMock(status_code=429)
+    mock_429.json.return_value = {"code": "too_many_requests", "message": "Daily quota exceeded"}
+
+    with patch.object(EmailService, "_execute_brevo_post", return_value=mock_429):
+        with pytest.raises(BrevoRateLimitError):
+            EmailService.send_email(to_email=test_email, subject="Test", text_content="Body")
+
+        resp = client.post(
+            "/api/auth/register/send-otp",
+            json={"email": test_email, "full_name": "Quota User"},
+        )
+        assert resp.status_code == 429
+        assert "rate limit reached" in resp.json()["detail"].lower()
+
+
+def test_24_brevo_http_500_provider_failure(client, db_session):
+    """24. Brevo HTTP 500 returns HTTP 502 bad gateway."""
+    test_email = "brevo_server_fail@hospital.com"
+    settings.ENVIRONMENT = "production"
+    settings.EMAIL_PROVIDER = "brevo"
+    settings.BREVO_API_KEY = "xkeysib_valid_key"
+    settings.BREVO_SENDER_EMAIL = "sender@gmail.com"
+
+    mock_500 = MagicMock(status_code=500)
+    mock_500.json.return_value = {"code": "internal_error", "message": "Internal server error"}
+
+    with patch.object(EmailService, "_execute_brevo_post", return_value=mock_500):
+        with pytest.raises(BrevoDeliveryError):
+            EmailService.send_email(to_email=test_email, subject="Test", text_content="Body")
+
+        resp = client.post(
+            "/api/auth/register/send-otp",
+            json={"email": test_email, "full_name": "Server User"},
+        )
+        assert resp.status_code == 502
+
+
+def test_25_brevo_connection_timeout(client, db_session):
+    """25. Network timeout during Brevo call raises BrevoConnectionError and HTTP 502."""
+    test_email = "brevo_timeout@hospital.com"
+    settings.ENVIRONMENT = "production"
+    settings.EMAIL_PROVIDER = "brevo"
+    settings.BREVO_API_KEY = "xkeysib_valid_key"
+    settings.BREVO_SENDER_EMAIL = "sender@gmail.com"
+
+    with patch.object(EmailService, "_execute_brevo_post", side_effect=httpx.TimeoutException("Timed out")):
+        with pytest.raises(BrevoConnectionError):
+            EmailService.send_email(to_email=test_email, subject="Test", text_content="Body")
+
+        resp = client.post(
+            "/api/auth/register/send-otp",
+            json={"email": test_email, "full_name": "Timeout User"},
+        )
+        assert resp.status_code == 502
+
+
+def test_26_brevo_status_and_health_reporting(client):
+    """26. Status endpoint reports Brevo configuration safely without leaking credentials."""
+    settings.EMAIL_PROVIDER = "brevo"
+    settings.BREVO_API_KEY = "xkeysib_secret_123456789"
+    settings.BREVO_SENDER_EMAIL = "safe_sender@hospital.com"
+
+    status_data = EmailService.get_status()
+    assert status_data["provider"] == "brevo"
+    assert status_data["configured"] is True
+    assert status_data["brevo_configured"] is True
+    assert status_data["sender"] == "safe_sender@hospital.com"
+    assert status_data["transport"] == "https"
+    assert "xkeysib_secret" not in str(status_data)
+
+    resp = client.get("/api/auth/email-status")
+    assert resp.status_code == 200
+    res_json = resp.json()["data"]
+    assert res_json["provider"] == "brevo"
+    assert "xkeysib_secret" not in resp.text
+
+
+def test_27_google_auth_new_patient_registration(client, db_session):
+    """27. Google Sign-In with verified token registers new Patient, creates record, and returns JWT."""
+    from app.services.auth_service import AuthService
+    google_email = "new_google_patient@hospital.com"
+    db_session.query(User).filter(User.email == google_email).delete()
+    db_session.commit()
+
+    mock_token_info = {
+        "iss": "https://accounts.google.com",
+        "sub": "google_uid_123456789",
+        "email": google_email,
+        "email_verified": True,
+        "name": "Jane Google",
+        "exp": 9999999999,
+    }
+
+    with patch.object(AuthService, "_fetch_google_token_info", return_value=mock_token_info):
+        resp = client.post(
+            "/api/auth/google",
+            json={"credential": "mock_google_id_token"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert "access_token" in data
+        user_info = data["user"]
+        assert user_info["email"] == google_email
+        assert user_info["full_name"] == "Jane Google"
+        assert user_info["role"] == "PATIENT"
+
+        # Verify DB records
+        created_user = db_session.query(User).filter(User.email == google_email).first()
+        assert created_user is not None
+        assert created_user.role == "PATIENT"
+        assert created_user.patient_profile is not None
+
+
+def test_28_google_auth_existing_user_sign_in(client, db_session):
+    """28. Existing user signing in with Google resolves to existing account without duplication."""
+    from app.services.auth_service import AuthService
+    existing_email = "existing_google_user@hospital.com"
+    db_session.query(User).filter(User.email == existing_email).delete()
+    u = User(
+        email=existing_email,
+        password_hash=get_password_hash("Existing@123"),
+        full_name="Existing Patient",
+        role="PATIENT",
+        is_active=True,
+    )
+    db_session.add(u)
+    db_session.commit()
+
+    mock_token_info = {
+        "iss": "https://accounts.google.com",
+        "sub": "google_sub_existing",
+        "email": existing_email,
+        "email_verified": True,
+        "name": "Existing Patient",
+        "exp": 9999999999,
+    }
+
+    with patch.object(AuthService, "_fetch_google_token_info", return_value=mock_token_info):
+        resp = client.post(
+            "/api/auth/google",
+            json={"credential": "mock_google_id_token"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["user"]["email"] == existing_email
+
+        # Ensure no duplicate accounts created
+        count = db_session.query(User).filter(User.email == existing_email).count()
+        assert count == 1
+
+
+def test_29_google_auth_unverified_email_rejection(client):
+    """29. Google account with unverified email is rejected with HTTP 400."""
+    from app.services.auth_service import AuthService
+    mock_token_info = {
+        "iss": "https://accounts.google.com",
+        "sub": "unverified_sub",
+        "email": "unverified@hospital.com",
+        "email_verified": False,
+        "name": "Unverified User",
+    }
+
+    with patch.object(AuthService, "_fetch_google_token_info", return_value=mock_token_info):
+        resp = client.post(
+            "/api/auth/google",
+            json={"credential": "mock_unverified_token"},
+        )
+        assert resp.status_code == 400
+        assert "verified email address" in resp.json()["detail"]
+
+
+def test_30_google_auth_invalid_issuer_rejection(client):
+    """30. Google token with untrusted issuer is rejected with HTTP 400."""
+    from app.services.auth_service import AuthService
+    mock_token_info = {
+        "iss": "https://untrusted-issuer.attacker.com",
+        "sub": "attacker_sub",
+        "email": "attacker@hospital.com",
+        "email_verified": True,
+        "name": "Attacker",
+    }
+
+    with patch.object(AuthService, "_fetch_google_token_info", return_value=mock_token_info):
+        resp = client.post(
+            "/api/auth/google",
+            json={"credential": "fake_issuer_token"},
+        )
+        assert resp.status_code == 400
+        assert "Invalid Google token issuer" in resp.json()["detail"]
+
+
+def test_31_google_auth_mismatched_audience_rejection(client):
+    """31. Google token with audience mismatching GOOGLE_CLIENT_ID is rejected."""
+    from app.services.auth_service import AuthService
+    settings.GOOGLE_CLIENT_ID = "legitimate-app-client-id.apps.googleusercontent.com"
+
+    mock_token_info = {
+        "iss": "https://accounts.google.com",
+        "aud": "rogue-app-client-id.apps.googleusercontent.com",
+        "sub": "rogue_sub",
+        "email": "rogue@hospital.com",
+        "email_verified": True,
+        "name": "Rogue User",
+    }
+
+    with patch.object(AuthService, "_fetch_google_token_info", return_value=mock_token_info):
+        resp = client.post(
+            "/api/auth/google",
+            json={"credential": "mismatched_aud_token"},
+        )
+        assert resp.status_code == 400
+        assert "audience does not match" in resp.json()["detail"]
+
+
+def test_32_google_auth_expired_token_rejection(client):
+    """32. Google token that has expired is rejected."""
+    from app.services.auth_service import AuthService
+    mock_token_info = {
+        "iss": "https://accounts.google.com",
+        "sub": "expired_sub",
+        "email": "expired@hospital.com",
+        "email_verified": True,
+        "name": "Expired User",
+        "exp": 1000000000,  # Far past timestamp
+    }
+
+    with patch.object(AuthService, "_fetch_google_token_info", return_value=mock_token_info):
+        resp = client.post(
+            "/api/auth/google",
+            json={"credential": "expired_token"},
+        )
+        assert resp.status_code == 400
+        assert "expired" in resp.json()["detail"]
+
+
+def test_33_google_auth_disabled_account_rejection(client, db_session):
+    """33. Inactive/disabled account attempting Google Sign-In is rejected."""
+    from app.services.auth_service import AuthService
+    disabled_email = "disabled_google_user@hospital.com"
+    db_session.query(User).filter(User.email == disabled_email).delete()
+    u = User(
+        email=disabled_email,
+        password_hash=get_password_hash("Disabled@123"),
+        full_name="Disabled User",
+        role="PATIENT",
+        is_active=False,
+    )
+    db_session.add(u)
+    db_session.commit()
+
+    mock_token_info = {
+        "iss": "https://accounts.google.com",
+        "sub": "disabled_sub",
+        "email": disabled_email,
+        "email_verified": True,
+        "name": "Disabled User",
+        "exp": 9999999999,
+    }
+
+    with patch.object(AuthService, "_fetch_google_token_info", return_value=mock_token_info):
+        resp = client.post(
+            "/api/auth/google",
+            json={"credential": "disabled_user_token"},
+        )
+        assert resp.status_code == 400
+        assert "disabled" in resp.json()["detail"]
+
+
+def test_34_google_auth_role_escalation_prevention(client, db_session):
+    """34. Public Google Sign-In requests cannot self-elevate to ADMIN or DOCTOR."""
+    from app.services.auth_service import AuthService
+    escalate_email = "hacker_escalate@hospital.com"
+    db_session.query(User).filter(User.email == escalate_email).delete()
+    db_session.commit()
+
+    mock_token_info = {
+        "iss": "https://accounts.google.com",
+        "sub": "escalate_sub",
+        "email": escalate_email,
+        "email_verified": True,
+        "name": "Escalate User",
+        "exp": 9999999999,
+    }
+
+    with patch.object(AuthService, "_fetch_google_token_info", return_value=mock_token_info):
+        resp = client.post(
+            "/api/auth/google",
+            json={"credential": "token", "role": "ADMIN"},
+        )
+        assert resp.status_code == 200
+        # Role must be PATIENT
+        assert resp.json()["data"]["user"]["role"] == "PATIENT"
+
+        created_user = db_session.query(User).filter(User.email == escalate_email).first()
+        assert created_user.role == "PATIENT"
 
 
 if __name__ == "__main__":

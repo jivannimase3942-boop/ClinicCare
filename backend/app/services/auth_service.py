@@ -1,6 +1,7 @@
 import secrets
 import smtplib
 import json
+import time
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone, timedelta
@@ -8,6 +9,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional, Tuple, Dict, Any, List
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
 from app.core.security import verify_password, get_password_hash, create_access_token, validate_password_strength
 from app.core.roles import get_permissions_for_role
@@ -39,14 +41,16 @@ class AuthService:
         # 2. Rate limit: check if an OTP was sent in the last 60 seconds
         recent = db.query(EmailVerification).filter(
             EmailVerification.email == normalized_email,
+            EmailVerification.purpose == "registration",
             EmailVerification.created_at >= now - timedelta(seconds=60)
         ).first()
         if recent:
             raise ValueError("Please wait 60 seconds before requesting another verification code.")
 
-        # 3. Invalidate previous pending OTPs for this email
+        # 3. Invalidate previous pending registration OTPs for this email
         db.query(EmailVerification).filter(
             EmailVerification.email == normalized_email,
+            EmailVerification.purpose == "registration",
             EmailVerification.is_verified == False
         ).delete()
 
@@ -61,6 +65,7 @@ class AuthService:
             attempts=0,
             max_attempts=5,
             is_verified=False,
+            purpose="registration",
             expires_at=expires_at,
             created_at=now,
         )
@@ -96,22 +101,25 @@ class AuthService:
         return result
 
     @staticmethod
-    def verify_registration_otp(db: Session, email: str, otp: str) -> bool:
+    def verify_otp(db: Session, email: str, otp: str, purpose: str = "registration") -> bool:
         normalized_email = email.strip().lower()
         ev = db.query(EmailVerification).filter(
             EmailVerification.email == normalized_email,
+            EmailVerification.purpose == purpose,
             EmailVerification.is_verified == False
         ).order_by(EmailVerification.created_at.desc()).first()
 
         if not ev:
-            # Check if recently verified already (within 15 min)
-            already_verified = db.query(EmailVerification).filter(
-                EmailVerification.email == normalized_email,
-                EmailVerification.is_verified == True,
-                EmailVerification.created_at >= datetime.now(timezone.utc) - timedelta(minutes=15)
-            ).first()
-            if already_verified:
-                return True
+            # Check if recently verified already (within 15 min) for registration
+            if purpose == "registration":
+                already_verified = db.query(EmailVerification).filter(
+                    EmailVerification.email == normalized_email,
+                    EmailVerification.purpose == purpose,
+                    EmailVerification.is_verified == True,
+                    EmailVerification.created_at >= datetime.now(timezone.utc) - timedelta(minutes=15)
+                ).first()
+                if already_verified:
+                    return True
             raise ValueError("No active verification code found for this email. Please request a new code.")
 
         now = datetime.now(timezone.utc)
@@ -122,16 +130,20 @@ class AuthService:
         if ev.attempts >= ev.max_attempts:
             raise ValueError("Maximum verification attempts exceeded. Please request a new code.")
 
-        ev.attempts += 1
-        db.commit()
-
         if not verify_password(otp.strip(), ev.otp_hash):
+            ev.attempts += 1
+            db.commit()
             remaining = max(0, ev.max_attempts - ev.attempts)
             raise ValueError(f"Invalid verification code. {remaining} attempt(s) remaining.")
 
+        ev.attempts += 1
         ev.is_verified = True
         db.commit()
         return True
+
+    @staticmethod
+    def verify_registration_otp(db: Session, email: str, otp: str) -> bool:
+        return AuthService.verify_otp(db, email=email, otp=otp, purpose="registration")
 
     @staticmethod
     def register_user(db: Session, reg_data: UserRegister) -> User:
@@ -158,9 +170,26 @@ class AuthService:
         # If OTP is provided, verify it and consume single-use status
         if reg_data.otp:
             AuthService.verify_registration_otp(db, normalized_email, reg_data.otp)
-            # Invalidate all verification records for this email to prevent reuse
-            db.query(EmailVerification).filter(EmailVerification.email == normalized_email).delete()
+            db.query(EmailVerification).filter(
+                EmailVerification.email == normalized_email,
+                EmailVerification.purpose == "registration"
+            ).delete()
             db.commit()
+        else:
+            if settings.is_production:
+                verified_ev = db.query(EmailVerification).filter(
+                    EmailVerification.email == normalized_email,
+                    EmailVerification.purpose == "registration",
+                    EmailVerification.is_verified == True,
+                    EmailVerification.created_at >= datetime.now(timezone.utc) - timedelta(minutes=15)
+                ).first()
+                if not verified_ev:
+                    raise ValueError("Email verification code is required to complete registration")
+                db.query(EmailVerification).filter(
+                    EmailVerification.email == normalized_email,
+                    EmailVerification.purpose == "registration"
+                ).delete()
+                db.commit()
 
         user = User(
             email=normalized_email,
@@ -171,7 +200,11 @@ class AuthService:
             is_active=True,
         )
         db.add(user)
-        db.flush()
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            raise ValueError("Email is already registered")
 
         # If role is PATIENT, create Patient profile
         if user.role == "PATIENT":
@@ -185,8 +218,13 @@ class AuthService:
             )
             db.add(patient)
 
-        db.commit()
-        db.refresh(user)
+        try:
+            db.commit()
+            db.refresh(user)
+        except IntegrityError:
+            db.rollback()
+            raise ValueError("Email is already registered")
+
         return user
 
     @staticmethod
@@ -273,14 +311,22 @@ class AuthService:
     def send_login_otp(db: Session, email: str) -> Dict[str, Any]:
         normalized_email = email.strip().lower()
         user = db.query(User).filter(User.email == normalized_email).first()
-        if not user:
-            raise ValueError("No account found with this email. Please register first.")
-        if not user.is_active:
-            raise ValueError("Account is disabled. Please contact administration.")
+        if not user or not user.is_active:
+            # Defensive response to prevent account enumeration / harvesting
+            return {
+                "email": normalized_email,
+                "message": f"If an active account is registered with {normalized_email}, a verification code has been dispatched.",
+                "expires_in_minutes": 10,
+                "email_dispatched": True,
+                "email_configured": email_service.is_configured(),
+                "smtp_configured": email_service.is_configured(),
+                "provider": email_service.get_active_provider(),
+            }
 
         now = datetime.now(timezone.utc)
         recent = db.query(EmailVerification).filter(
             EmailVerification.email == normalized_email,
+            EmailVerification.purpose == "login",
             EmailVerification.created_at >= now - timedelta(seconds=60)
         ).first()
         if recent:
@@ -288,6 +334,7 @@ class AuthService:
 
         db.query(EmailVerification).filter(
             EmailVerification.email == normalized_email,
+            EmailVerification.purpose == "login",
             EmailVerification.is_verified == False
         ).delete()
 
@@ -301,6 +348,7 @@ class AuthService:
             attempts=0,
             max_attempts=5,
             is_verified=False,
+            purpose="login",
             expires_at=expires_at,
             created_at=now,
         )
@@ -343,24 +391,58 @@ class AuthService:
         if not user.is_active:
             raise ValueError("Account is disabled.")
 
-        AuthService.verify_registration_otp(db, normalized_email, otp)
-        db.query(EmailVerification).filter(EmailVerification.email == normalized_email).delete()
+        AuthService.verify_otp(db, normalized_email, otp, purpose="login")
+        db.query(EmailVerification).filter(
+            EmailVerification.email == normalized_email,
+            EmailVerification.purpose == "login"
+        ).delete()
         db.commit()
         return user
 
     @staticmethod
-    def authenticate_google(db: Session, token: str, requested_role: str = "PATIENT") -> User:
-        # Verify with Google OAuth2 tokeninfo endpoint
+    def _fetch_google_token_info(token: str) -> Dict[str, Any]:
+        """Fetches Google ID token details from official Google OAuth2 tokeninfo endpoint."""
         url = f"https://oauth2.googleapis.com/tokeninfo?id_token={urllib.parse.quote(token)}"
+        req = urllib.request.Request(url, headers={"User-Agent": "ClinicCare-Auth/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status != 200:
+                raise ValueError("Invalid Google authentication token")
+            return json.loads(response.read().decode("utf-8"))
+
+    @staticmethod
+    def authenticate_google(db: Session, token: str, requested_role: str = "PATIENT") -> User:
+        """
+        Independently verifies Google ID token, validates signature, issuer, audience, and expiration.
+        Creates patient account if new, or authenticates existing account preserving roles.
+        Guarantees concurrency safety without duplicate account creation.
+        """
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "ClinicCare-Auth/1.0"})
-            with urllib.request.urlopen(req, timeout=10) as response:
-                if response.status != 200:
-                    raise ValueError("Invalid Google authentication token")
-                data = json.loads(response.read().decode("utf-8"))
+            data = AuthService._fetch_google_token_info(token)
         except Exception as e:
             raise ValueError(f"Google token verification failed: {str(e)}")
 
+        # 1. Validate issuer
+        issuer = data.get("iss")
+        if issuer not in ["accounts.google.com", "https://accounts.google.com"]:
+            raise ValueError("Invalid Google token issuer")
+
+        # 2. Validate audience if GOOGLE_CLIENT_ID is configured
+        if getattr(settings, "GOOGLE_CLIENT_ID", None) and str(settings.GOOGLE_CLIENT_ID).strip():
+            token_aud = data.get("aud")
+            if token_aud != str(settings.GOOGLE_CLIENT_ID).strip():
+                raise ValueError("Google token audience does not match configured client ID")
+
+        # 3. Validate expiration
+        exp = data.get("exp")
+        if exp is not None:
+            try:
+                exp_ts = float(exp)
+            except (ValueError, TypeError):
+                exp_ts = None
+            if exp_ts is not None and time.time() > exp_ts:
+                raise ValueError("Google authentication token has expired")
+
+        # 4. Enforce verified email
         email = data.get("email")
         if not email or data.get("email_verified") not in [True, "true", "True"]:
             raise ValueError("Google account does not have a verified email address")
@@ -368,7 +450,7 @@ class AuthService:
         normalized_email = email.strip().lower()
         full_name = data.get("name") or "Google User"
 
-        # Check if user already exists
+        # 5. Check if user already exists
         user = db.query(User).filter(User.email == normalized_email).first()
         if user:
             if not user.is_active:
@@ -376,37 +458,34 @@ class AuthService:
             # Existing account resolves to their existing role (Google cannot escalate)
             return user
 
-        # New user via Google:
-        # Never allow Google to create ADMIN or elevate to DOCTOR/FRONT_DESK directly
-        role_req = (requested_role or "PATIENT").upper()
-        if role_req in ["ADMIN", "FRONT_DESK", "DOCTOR"]:
-            # If requested a staff role via Google, set as pending approval
-            if role_req == "DOCTOR":
-                role_to_set = "PENDING_DOCTOR"
-            elif role_req in ["FRONT_DESK", "ADMIN"]:
-                role_to_set = "PENDING_FRONT_DESK"
-            else:
-                role_to_set = "PATIENT"
-        else:
-            role_to_set = "PATIENT"
+        # 6. New user via Google: role is strictly PATIENT (never elevate to ADMIN/DOCTOR)
+        role_to_set = "PATIENT"
 
-        user = User(
-            email=normalized_email,
-            password_hash=get_password_hash(f"google_oauth_{secrets.token_urlsafe(32)}"),
-            full_name=full_name,
-            role=role_to_set,
-            is_active=True,
-        )
-        db.add(user)
-        db.flush()
+        try:
+            user = User(
+                email=normalized_email,
+                password_hash=get_password_hash(f"google_oauth_{secrets.token_urlsafe(32)}"),
+                full_name=full_name,
+                role=role_to_set,
+                is_active=True,
+            )
+            db.add(user)
+            db.flush()
 
-        if user.role == "PATIENT":
             patient = Patient(user_id=user.id)
             db.add(patient)
-
-        db.commit()
-        db.refresh(user)
-        return user
+            db.commit()
+            db.refresh(user)
+            return user
+        except IntegrityError:
+            db.rollback()
+            # Handle concurrent race condition: user was created concurrently
+            user = db.query(User).filter(User.email == normalized_email).first()
+            if user:
+                if not user.is_active:
+                    raise ValueError("User account is disabled")
+                return user
+            raise ValueError("Failed to complete Google authentication due to concurrent conflict")
 
     @staticmethod
     def approve_pending_staff(db: Session, user_id: str, new_role: str) -> User:

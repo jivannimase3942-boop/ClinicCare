@@ -56,6 +56,7 @@ def ensure_schema_updates():
                     ("users", "organization_id", "VARCHAR(36)"),
                     ("users", "branch_id", "VARCHAR(36)"),
                     ("clinics", "organization_id", "VARCHAR(36)"),
+                    ("email_verifications", "purpose", "VARCHAR(50) DEFAULT 'registration'"),
                 ]:
                     try:
                         res = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
@@ -69,6 +70,7 @@ def ensure_schema_updates():
                     ("users", "organization_id", "VARCHAR(36)"),
                     ("users", "branch_id", "VARCHAR(36)"),
                     ("clinics", "organization_id", "VARCHAR(36)"),
+                    ("email_verifications", "purpose", "VARCHAR(50) DEFAULT 'registration'"),
                 ]:
                     try:
                         conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_def}"))

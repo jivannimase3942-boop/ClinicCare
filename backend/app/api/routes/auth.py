@@ -30,7 +30,17 @@ from app.services.email_service import (
     ResendNotConfiguredError,
     ResendConnectionError,
     ResendAuthenticationError,
+    ResendRestrictedRecipientError,
+    ResendValidationError,
+    ResendRateLimitError,
     ResendDeliveryError,
+    BrevoNotConfiguredError,
+    BrevoConnectionError,
+    BrevoAuthenticationError,
+    BrevoRestrictedSenderError,
+    BrevoValidationError,
+    BrevoRateLimitError,
+    BrevoDeliveryError,
 )
 from app.core.security import verify_password, get_password_hash
 from app.api.dependencies import get_current_user
@@ -66,8 +76,30 @@ def send_registration_otp(payload: SendOtpRequest, db: Session = Depends(get_db)
     try:
         res = auth_service.send_registration_otp(db, email=payload.email, full_name=payload.full_name)
         return ApiResponse(success=True, message=res["message"], data=res)
-    except (EmailNotConfiguredError, SMTPNotConfiguredError, ResendNotConfiguredError) as e:
+    except (EmailNotConfiguredError, SMTPNotConfiguredError, ResendNotConfiguredError, BrevoNotConfiguredError) as e:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    except (ResendRestrictedRecipientError, BrevoRestrictedSenderError) as e:
+        detail_msg = (
+            "Email verification delivery is restricted. "
+            "Please verify that the sender email or domain is verified in your email provider console. "
+            "Please contact the clinic administrator."
+        ) if isinstance(e, BrevoRestrictedSenderError) else (
+            "Email verification delivery is restricted for this recipient address. "
+            "In sandbox mode, emails can only be sent to the registered Resend account owner. "
+            "A custom domain must be verified in Resend to send to external recipients. "
+            "Please contact the clinic administrator."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail_msg,
+        )
+    except (ResendRateLimitError, BrevoRateLimitError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Email provider rate limit reached. Please wait a moment before requesting another code.",
+        )
+    except (ResendValidationError, BrevoValidationError) as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     except (
         EmailConnectionError,
         EmailAuthenticationError,
@@ -78,6 +110,9 @@ def send_registration_otp(payload: SendOtpRequest, db: Session = Depends(get_db)
         ResendConnectionError,
         ResendAuthenticationError,
         ResendDeliveryError,
+        BrevoConnectionError,
+        BrevoAuthenticationError,
+        BrevoDeliveryError,
     ) as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
     except ValueError as e:
@@ -173,8 +208,30 @@ def send_login_otp(payload: LoginSendOtpRequest, db: Session = Depends(get_db)):
     try:
         res = auth_service.send_login_otp(db, email=payload.email)
         return ApiResponse(success=True, message=res["message"], data=res)
-    except (EmailNotConfiguredError, SMTPNotConfiguredError, ResendNotConfiguredError) as e:
+    except (EmailNotConfiguredError, SMTPNotConfiguredError, ResendNotConfiguredError, BrevoNotConfiguredError) as e:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    except (ResendRestrictedRecipientError, BrevoRestrictedSenderError) as e:
+        detail_msg = (
+            "Email verification delivery is restricted. "
+            "Please verify that the sender email or domain is verified in your email provider console. "
+            "Please contact the clinic administrator."
+        ) if isinstance(e, BrevoRestrictedSenderError) else (
+            "Email verification delivery is restricted for this recipient address. "
+            "In sandbox mode, emails can only be sent to the registered Resend account owner. "
+            "A custom domain must be verified in Resend to send to external recipients. "
+            "Please contact the clinic administrator."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail_msg,
+        )
+    except (ResendRateLimitError, BrevoRateLimitError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Email provider rate limit reached. Please wait a moment before requesting another code.",
+        )
+    except (ResendValidationError, BrevoValidationError) as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     except (
         EmailConnectionError,
         EmailAuthenticationError,
@@ -185,6 +242,9 @@ def send_login_otp(payload: LoginSendOtpRequest, db: Session = Depends(get_db)):
         ResendConnectionError,
         ResendAuthenticationError,
         ResendDeliveryError,
+        BrevoConnectionError,
+        BrevoAuthenticationError,
+        BrevoDeliveryError,
     ) as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
     except ValueError as e:

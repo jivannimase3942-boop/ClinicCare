@@ -5,6 +5,7 @@ import { useToast } from '@/context/ToastContext'
 import { authService } from '@/services/auth'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton'
 import {
   Activity,
   Lock,
@@ -269,20 +270,19 @@ export const LoginPage: React.FC = () => {
           </form>
         )}
 
-        {/* Google OAuth Section (Gracefully handled) */}
-        {googleClientId ? (
-          <div className="space-y-3">
-            <div className="relative flex items-center justify-center">
-              <div className="border-t border-slate-200 w-full" />
-              <span className="bg-white px-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                or
-              </span>
-            </div>
-            <div id="google-signin-btn-container" className="flex justify-center">
-              {/* Google official button container if configured */}
-            </div>
+        {/* Google OAuth Section */}
+        <div className="space-y-3">
+          <div className="relative flex items-center justify-center">
+            <div className="border-t border-slate-200 w-full" />
+            <span className="bg-white px-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              or
+            </span>
           </div>
-        ) : null}
+          <GoogleSignInButton
+            mode="signin"
+            onSuccess={(user) => redirectUserByRole(user.role)}
+          />
+        </div>
 
         {/* Registration Options Link */}
         <div className="text-center text-xs text-slate-500 pt-1 border-t border-slate-100">

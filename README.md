@@ -148,42 +148,79 @@ Key configurable environment variables include:
 - `DATABASE_URL`: Relational database connection string (`sqlite:///./hospital.db` or `postgresql://...`).
 - `GEMINI_API_KEY`: Google Gemini API key for conversational AI assistance.
 - `WA_PHONE_NUMBER_ID` & `WA_ACCESS_TOKEN`: Meta WhatsApp Cloud API credentials.
-- `EMAIL_PROVIDER`: Email dispatch transport (`resend` for HTTPS API, or `smtp` for legacy SMTP).
-- `RESEND_API_KEY`: Secret API key for Resend HTTPS API (e.g. `re_...`).
-- `RESEND_FROM_EMAIL`: Configured sender email address / header (e.g. `ClinicCare Healthcare <alerts@yourverifieddomain.com>`).
-- `VITE_API_BASE_URL`: Frontend API base URL (defaults to `http://localhost:8000/api`).
+- `EMAIL_PROVIDER`: Email dispatch transport (`brevo` for free tier with individual sender verification, `resend` for custom domains, or `smtp`).
+- `BREVO_API_KEY`: Secret API key for Brevo HTTPS API (e.g. `xkeysib-...`).
+- `BREVO_SENDER_EMAIL`: Verified sender email address in Brevo (e.g. `yourname@gmail.com`).
+- `BREVO_SENDER_NAME`: Sender display name (defaults to `ClinicCare Healthcare`).
+- `GOOGLE_CLIENT_ID`: Google OAuth 2.0 Client ID for backend token verification.
+- `VITE_GOOGLE_CLIENT_ID`: Google OAuth 2.0 Client ID for frontend Google Identity Services button.
+- `VITE_API_BASE_URL`: Frontend API base URL (defaults to `https://cliniccare-backend-48g6.onrender.com/api` in production).
 
 *(Never commit `.env` or production credentials to source control).*
 
-### Email & OTP Delivery Architecture (Resend HTTPS API)
+### Email & OTP Delivery Architecture
 
-ClinicCare utilizes Resend's HTTPS Email API (`POST https://api.resend.com/emails`) as its primary email dispatch transport, eliminating SMTP timeout and port-blocking failures commonly encountered on Render Free and serverless cloud environments (where outbound TCP connections on ports 587, 465, and 25 are restricted).
+ClinicCare supports two modern HTTPS API email transports running over standard port 443 (avoiding SMTP port 587 timeouts on Render):
 
-#### 1. Configuring Render Environment Variables
-In your Render Dashboard for `cliniccare-backend`:
-1. Navigate to **Environment**.
-2. Set `EMAIL_PROVIDER` to `resend`.
-3. Add `RESEND_API_KEY` with your secret key from [Resend](https://resend.com/api-keys).
-4. Set `RESEND_FROM_EMAIL` (e.g. `ClinicCare Healthcare <alerts@yourverifieddomain.com>`).
-5. Save changes. Render will automatically redeploy the backend with the new HTTPS transport.
+#### Solution A: Brevo (Sendinblue) HTTPS API — Free Tier Without Custom Domain
+If you do not own a custom domain and do not want to purchase one or configure DNS records, **Brevo** provides a permanent free tier allowing you to verify an individual sender email (such as a personal `@gmail.com`) and send OTP emails to **any recipient**:
 
-#### 2. Verified Sender & Domain Requirements
-- **Testing**: In non-production or evaluation environments, Resend allows sending from `onboarding@resend.dev` only to the email address registered with the Resend account.
-- **Production Delivery**: For unrestricted email dispatch to arbitrary patient and doctor recipients, a custom domain must be verified in your Resend Dashboard (adding required SPF, DKIM, and DMARC DNS records). Once verified, set `RESEND_FROM_EMAIL="ClinicCare Healthcare <alerts@yourdomain.com>"`.
+1. **Free Tier Highlights**:
+   - **300 free emails per day** (9,000/month) forever.
+   - **No custom domain required**: Verify an individual mailbox via confirmation link.
+   - **Delivers to any email address**: Developer, friends, external patient test accounts.
+   - **HTTPS REST API over port 443**: Fully compatible with Render's network policies.
+2. **Setup Steps**:
+   - Create a free account at [brevo.com](https://www.brevo.com).
+   - Go to **Senders & IPs** > **Senders** > **Add a sender**.
+   - Enter your name and email address (e.g. `yourname@gmail.com`).
+   - Click the confirmation link sent to your inbox. The sender status will change to **Verified**.
+   - Go to **SMTP & API** > **API Keys** and generate a new key (`xkeysib-...`).
+3. **Configure Render Backend**:
+   In your Render Dashboard for `cliniccare-backend`:
+   - `EMAIL_PROVIDER` = `brevo`
+   - `BREVO_API_KEY` = `xkeysib-...`
+   - `BREVO_SENDER_EMAIL` = `yourname@gmail.com`
+   - `BREVO_SENDER_NAME` = `ClinicCare Healthcare`
 
-#### 3. Testing Registration & Login OTP Delivery
-1. Ensure `EMAIL_PROVIDER=resend` and `RESEND_API_KEY` are populated.
-2. Check diagnostics via `GET /api/auth/email-status` or `GET /health` (`"email_configured": true`, `"email_provider": "resend"`).
-3. Request a registration OTP via `POST /api/auth/register/send-otp` with `{"email": "<recipient_email>", "full_name": "Test Patient"}`.
-4. Verify the 6-digit numeric verification code received in the inbox via `POST /api/auth/register/verify-otp`.
-5. In non-production environments with unconfigured email, a development fallback `dev_code` is returned for developer convenience. In production (`is_production=True`), `dev_code` is strictly blocked and never returned.
+#### Solution B: Resend HTTPS API — Custom Domain Delivery
+If you own a custom domain with DNS control:
+1. Set `EMAIL_PROVIDER=resend`.
+2. Add `RESEND_API_KEY` in Render.
+3. Verify your domain at [resend.com/domains](https://resend.com/domains) by adding DKIM, SPF, and DMARC DNS records.
+4. Set `RESEND_FROM_EMAIL=ClinicCare Healthcare <alerts@yourverifieddomain.com>`.
 
-#### 4. Safe Troubleshooting for Provider Errors
-- **HTTP 502 with "Resend authentication failed (HTTP 401/403)"**: The provided `RESEND_API_KEY` is invalid or lacks sending permissions. Verify the key in the Resend dashboard. Secrets are never leaked in error messages.
-- **HTTP 502 with "Resend validation error (HTTP 422)"**: The sender address or domain is unverified, or the recipient format is invalid. Check `RESEND_FROM_EMAIL` matches a verified domain.
-- **HTTP 502 with "Resend rate limit exceeded (HTTP 429)"**: The API request rate exceeded provider thresholds. Resend allows 2 requests/sec on free tiers. Wait before retrying.
-- **HTTP 502 with "Connection to Resend API timed out"**: Outbound HTTPS network latency or transient provider unreachable. Retry the request.
-- **HTTP 503 with "Resend email service is not configured"**: Production environment is active but `RESEND_API_KEY` is missing from environment variables.
+*(Note: Without a verified custom domain, Resend sandbox with `onboarding@resend.dev` restricts delivery exclusively to the Resend account owner with HTTP 403).*
+
+### Google Sign-In Setup (Google Identity Services)
+
+ClinicCare supports one-click patient authentication via official Google Identity Services (GSI) OAuth 2.0:
+
+1. **Google Cloud Console Setup**:
+   - Navigate to [Google Cloud Console](https://console.cloud.google.com).
+   - Create or select your Google Cloud project.
+   - Go to **APIs & Services** > **OAuth consent screen**.
+     - Set User Type to **External**.
+     - Fill App Name (`ClinicCare`), User support email, and Developer contact email.
+     - Add required scopes: `openid`, `email`, `profile`.
+   - Go to **APIs & Services** > **Credentials** > **Create Credentials** > **OAuth Client ID**.
+     - Application type: **Web application**.
+     - Name: `ClinicCare Web Client`.
+     - **Authorized JavaScript origins**:
+       - `https://cliniccare-g3c6.onrender.com` (Production frontend)
+       - `http://localhost:5173` (Local frontend dev)
+       - `http://localhost:3000`
+     - Click **Create** and copy your **Client ID** (e.g., `123456789-xxxx.apps.googleusercontent.com`).
+2. **Configure in Render**:
+   - **Frontend Service (`cliniccare-g3c6`)**:
+     Add environment variable: `VITE_GOOGLE_CLIENT_ID` = `<your-google-client-id>`.
+   - **Backend Service (`cliniccare-backend-48g6`)**:
+     Add environment variable: `GOOGLE_CLIENT_ID` = `<your-google-client-id>`.
+3. **Security Safeguards**:
+   - Backend independently verifies token signature, expiration, issuer (`accounts.google.com`), and audience with Google.
+   - Requires `email_verified=True`.
+   - New Google users are strictly registered with `PATIENT` role (never elevates to Admin or Doctor).
+   - Existing accounts resolve cleanly by normalized email without account duplication or password overwrites.
 
 ## Testing
 

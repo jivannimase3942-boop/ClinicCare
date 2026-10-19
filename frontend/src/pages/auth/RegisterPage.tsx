@@ -6,6 +6,7 @@ import { authService } from '@/services/auth'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton'
 import { Activity, Lock, Mail, User, Phone, ArrowRight, ShieldCheck, KeyRound, ArrowLeft, RefreshCw } from 'lucide-react'
 
 export const RegisterPage: React.FC = () => {
@@ -210,6 +211,20 @@ export const RegisterPage: React.FC = () => {
             >
               Continue to Email Verification
             </Button>
+
+            {/* Google Sign-In Section */}
+            <div className="space-y-3 pt-2">
+              <div className="relative flex items-center justify-center">
+                <div className="border-t border-slate-200 w-full" />
+                <span className="bg-white px-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                  or
+                </span>
+              </div>
+              <GoogleSignInButton
+                mode="signup"
+                onSuccess={() => navigate('/patient/dashboard', { replace: true })}
+              />
+            </div>
           </form>
         ) : (
           <form onSubmit={handleVerifyAndRegister} className="space-y-5">
