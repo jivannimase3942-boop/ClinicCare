@@ -78,7 +78,7 @@ class EmailService:
             raise ValueError("Recipient email address cannot be empty")
 
         if not EmailService.is_configured():
-            if settings.ENVIRONMENT == "production":
+            if settings.is_production:
                 raise SMTPNotConfiguredError(
                     "SMTP email service is not configured on this server. "
                     "Required environment variables (SMTP_HOST, SMTP_USER, SMTP_PASSWORD) are missing."

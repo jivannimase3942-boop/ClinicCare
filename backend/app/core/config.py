@@ -12,6 +12,24 @@ class Settings(BaseSettings):
     PORT: int = 8000
     HOST: str = "0.0.0.0"
 
+    @field_validator("ENVIRONMENT", mode="before")
+    def assemble_environment(cls, v: Optional[str]) -> str:
+        if v and str(v).strip():
+            return str(v).strip().lower()
+        if os.getenv("RENDER") == "true" or os.getenv("RENDER_SERVICE_ID") or os.getenv("RENDER_INSTANCE_ID"):
+            return "production"
+        return "development"
+
+    @property
+    def is_production(self) -> bool:
+        env = (self.ENVIRONMENT or "").strip().lower()
+        if env == "production":
+            return True
+        if bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID") or os.getenv("RENDER_INSTANCE_ID")):
+            return True
+        return False
+
+
     # CORS
     CORS_ORIGINS: Union[List[str], str] = [
         "http://localhost:5173",

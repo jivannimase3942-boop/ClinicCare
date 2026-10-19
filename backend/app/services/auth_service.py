@@ -83,7 +83,7 @@ class AuthService:
             "smtp_configured": email_result.get("smtp_configured", False),
         }
         # In non-production development environments where SMTP is unconfigured, provide dev code for testing
-        if settings.ENVIRONMENT != "production" and (settings.DEBUG or not settings.SMTP_HOST):
+        if not settings.is_production and (settings.DEBUG or not settings.SMTP_HOST):
             result["dev_code"] = otp_code
 
         return result
@@ -315,7 +315,7 @@ class AuthService:
             "email_dispatched": email_result.get("dispatched", False),
             "smtp_configured": email_result.get("smtp_configured", False),
         }
-        if settings.ENVIRONMENT != "production" and (settings.DEBUG or not settings.SMTP_HOST):
+        if not settings.is_production and (settings.DEBUG or not settings.SMTP_HOST):
             result["dev_code"] = otp_code
 
         return result

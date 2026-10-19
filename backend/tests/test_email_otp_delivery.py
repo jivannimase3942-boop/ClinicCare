@@ -250,6 +250,25 @@ def test_smtp_status_and_health_endpoints(client):
     assert health_resp.json()["smtp_configured"] is True
 
 
+def test_render_runtime_production_auto_detection_and_no_dev_code(client, monkeypatch):
+    """Verifies that running in Render environment forces production mode and blocks dev_code."""
+    monkeypatch.setenv("RENDER", "true")
+    assert settings.is_production is True
+
+    test_email = "render_test_patient@cliniccarehospital.com"
+    settings.SMTP_HOST = None
+    settings.SMTP_USER = None
+    settings.SMTP_PASSWORD = None
+
+    resp = client.post(
+        "/api/auth/register/send-otp",
+        json={"email": test_email, "full_name": "Render Patient"},
+    )
+    assert resp.status_code == 503
+    assert "SMTP email service is not configured on this server" in resp.json()["detail"]
+    assert "dev_code" not in str(resp.json())
+
+
 if __name__ == "__main__":
     import sys
     from pathlib import Path
