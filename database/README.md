@@ -40,3 +40,31 @@ This automatically checks table structures, creates any missing tables, and seed
 - Sample AI Conversations & Transcripts
 - Emergency Escalations & Voice Call Requests
 - Sample Error Logs for audit demonstration
+
+## Migrating from SQLite to PostgreSQL
+
+A dedicated, non-destructive migration utility is provided in `backend/scripts/migrate_sqlite_to_postgres.py`.
+
+> [!WARNING]
+> **Production Cutover Prerequisite:** Do NOT execute live migration against production databases without prior validation on an isolated staging database.
+
+### 1. Mandatory Backup
+Before running migration, create a full physical cold backup of your source SQLite database:
+```powershell
+Copy-Item hospital.db "hospital.db.backup.$(Get-Date -Format 'yyyyMMddHHmmss')"
+```
+
+### 2. Dry-Run Validation (Read-Only)
+Always perform a dry run first to verify schema connectivity, inspect foreign keys, and audit orphan records:
+```powershell
+python backend/scripts/migrate_sqlite_to_postgres.py --source sqlite:///./hospital.db --target "$env:MIGRATION_TARGET_DB_URL" --dry-run
+```
+
+### 3. Orphan Records & Options
+- If source foreign keys refer to non-existent rows, the utility halts with `OrphanDataDetectedError`.
+- If orphaned records are confirmed obsolete by clinical administration, `--skip-orphans` may be passed to omit them and report the exact counts.
+- Target databases containing existing rows require `--allow-non-empty-target`.
+
+### 4. Technical Assumptions
+- **Naive Timestamps:** SQLite datetimes without timezone offsets are normalized to UTC. Operators must verify that legacy timestamps were generated in UTC before production cutover.
+- **Transaction Atomicity:** Target writes execute inside a single atomic transaction that rolls back completely on any error.

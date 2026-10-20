@@ -76,6 +76,12 @@ class Settings(BaseSettings):
             return val.replace("postgres://", "postgresql://", 1)
         return val
 
+    # Database Connection Pool Settings (Conservative configurable defaults for production PostgreSQL)
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 10
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 1800
+
     SUPABASE_URL: Optional[str] = None
     SUPABASE_KEY: Optional[str] = None
     SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None
