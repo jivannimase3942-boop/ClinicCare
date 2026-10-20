@@ -11,6 +11,10 @@ import {
   VoiceCallRequest,
   AIConversation,
   ErrorLog,
+  AdminUser,
+  AdminUserListResponse,
+  LoginActivityItem,
+  LoginActivityListResponse,
 } from '@/types'
 
 export const adminService = {
@@ -106,6 +110,41 @@ export const adminService = {
 
   getClinicalAnalytics: async (): Promise<any> => {
     const res = await api.get<ApiResponse<any>>('/admin/clinical-analytics')
+    return res.data.data
+  },
+
+  getUsers: async (params?: {
+    search?: string
+    role?: string
+    is_active?: boolean
+    page?: number
+    page_size?: number
+  }): Promise<AdminUserListResponse> => {
+    const res = await api.get<ApiResponse<AdminUserListResponse>>('/admin/users', { params })
+    return res.data.data
+  },
+
+  updateUserStatus: async (
+    userId: string,
+    isActive: boolean,
+    reason?: string
+  ): Promise<AdminUser> => {
+    const res = await api.patch<ApiResponse<AdminUser>>(`/admin/users/${userId}/status`, {
+      is_active: isActive,
+      reason,
+    })
+    return res.data.data
+  },
+
+  getLoginActivity: async (params?: {
+    search?: string
+    event_type?: string
+    start_date?: string
+    end_date?: string
+    page?: number
+    page_size?: number
+  }): Promise<LoginActivityListResponse> => {
+    const res = await api.get<ApiResponse<LoginActivityListResponse>>('/admin/security/login-activity', { params })
     return res.data.data
   },
 }

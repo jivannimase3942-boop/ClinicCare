@@ -6,6 +6,7 @@ from pydantic import BaseModel
 class MetricSummary(BaseModel):
     total_patients: int
     total_doctors: int
+    total_users: int = 0
     today_appointments: int
     upcoming_appointments: int
     pending_appointments: int = 0
@@ -56,3 +57,50 @@ class ErrorLogResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AdminUserItem(BaseModel):
+    id: str
+    email: str
+    full_name: str
+    phone: Optional[str] = None
+    role: str
+    is_active: bool
+    created_at: Optional[datetime] = None
+    last_login_at: Optional[datetime] = None
+    failed_login_attempts: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class AdminUserListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    users: List[AdminUserItem]
+
+
+class AdminUserStatusUpdate(BaseModel):
+    is_active: bool
+    reason: Optional[str] = None
+
+
+class LoginActivityItem(BaseModel):
+    id: str
+    user_id: Optional[str] = None
+    user_email: Optional[str] = None
+    event_type: str
+    severity: str
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    details: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class LoginActivityListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: List[LoginActivityItem]

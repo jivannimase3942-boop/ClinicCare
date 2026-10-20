@@ -47,37 +47,51 @@ from app.api.routes import (
 )
 
 
+import logging
+
+logger = logging.getLogger("app.main")
+
+
 def ensure_schema_updates():
     try:
+        from sqlalchemy import inspect
         with engine.begin() as conn:
+            insp = inspect(conn)
             dialect = engine.dialect.name
             if dialect == "sqlite":
                 for table, col, col_def in [
                     ("users", "organization_id", "VARCHAR(36)"),
                     ("users", "branch_id", "VARCHAR(36)"),
+                    ("users", "last_login_at", "DATETIME"),
+                    ("users", "failed_login_attempts", "INTEGER DEFAULT 0"),
                     ("clinics", "organization_id", "VARCHAR(36)"),
                     ("email_verifications", "purpose", "VARCHAR(50) DEFAULT 'registration'"),
                 ]:
                     try:
-                        res = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
-                        existing_cols = [r[1] for r in res]
-                        if col not in existing_cols:
-                            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}"))
-                    except Exception:
-                        pass
+                        if insp.has_table(table):
+                            res = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+                            existing_cols = [r[1] for r in res]
+                            if col not in existing_cols:
+                                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}"))
+                    except Exception as err:
+                        logger.warning(f"[ClinicCare] Notice adding column {table}.{col}: {err}")
             elif dialect == "postgresql":
                 for table, col, col_def in [
                     ("users", "organization_id", "VARCHAR(36)"),
                     ("users", "branch_id", "VARCHAR(36)"),
+                    ("users", "last_login_at", "TIMESTAMP WITH TIME ZONE"),
+                    ("users", "failed_login_attempts", "INTEGER DEFAULT 0"),
                     ("clinics", "organization_id", "VARCHAR(36)"),
                     ("email_verifications", "purpose", "VARCHAR(50) DEFAULT 'registration'"),
                 ]:
                     try:
-                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_def}"))
-                    except Exception:
-                        pass
+                        if insp.has_table(table):
+                            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_def}"))
+                    except Exception as err:
+                        logger.warning(f"[ClinicCare] Notice adding PG column {table}.{col}: {err}")
     except Exception as e:
-        print(f"[ClinicCare] Notice during ensure_schema_updates: {e}")
+        logger.warning(f"[ClinicCare] Notice during ensure_schema_updates: {e}")
+
 
 
 @asynccontextmanager

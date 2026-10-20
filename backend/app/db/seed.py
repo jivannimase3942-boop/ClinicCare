@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from sqlalchemy import text
 from app.db.session import engine, SessionLocal, Base
+from app.core.config import settings
 from app.core.security import get_password_hash
 from app.models.clinic import Clinic
 from app.models.audit import AuditLog
@@ -30,29 +31,59 @@ from app.services.audit_service import audit_service
 
 
 def ensure_demo_accounts(db: SessionLocal):
-    """Guarantees all 4 demo role logins exist and have valid credentials and active profiles."""
+    """
+    Initializes accounts for development/testing or seeds administrator if configured.
+    Guarantees that existing production account credentials are NEVER overwritten on startup.
+    In production, never creates default administrator or demo accounts with default passwords.
+    """
     from app.core.security import get_password_hash
     from app.models.user import User, Patient, Doctor, Department
+
+    is_prod = settings.is_production
+    seed_demo = os.getenv("SEED_DEMO_DATA", "false").lower() == "true" or not is_prod
 
     # 1. Admin
     admin_email = os.getenv("ADMIN_EMAIL", "admin@hospital.com")
     admin_pass = os.getenv("ADMIN_PASSWORD", "Admin@123")
     admin = db.query(User).filter(User.email == admin_email).first()
     if not admin:
-        admin = User(
-            email=admin_email,
-            password_hash=get_password_hash(admin_pass),
-            full_name="Hospital Administrator",
-            phone="+1 (800) 555-0100",
-            role="ADMIN",
-            is_active=True,
-        )
-        db.add(admin)
-        db.flush()
+        if is_prod:
+            # In production, never create a default admin with a known password
+            if admin_pass == "Admin@123" or not os.getenv("ADMIN_PASSWORD"):
+                print("[Seed Security Notice] Skipping default admin creation in production: no custom ADMIN_PASSWORD provided.")
+            else:
+                admin = User(
+                    email=admin_email,
+                    password_hash=get_password_hash(admin_pass),
+                    full_name="Hospital Administrator",
+                    phone="+1 (800) 555-0100",
+                    role="ADMIN",
+                    is_active=True,
+                )
+                db.add(admin)
+                db.flush()
+        else:
+            admin = User(
+                email=admin_email,
+                password_hash=get_password_hash(admin_pass),
+                full_name="Hospital Administrator",
+                phone="+1 (800) 555-0100",
+                role="ADMIN",
+                is_active=True,
+            )
+            db.add(admin)
+            db.flush()
     else:
-        admin.password_hash = get_password_hash(admin_pass)
-        admin.is_active = True
-        admin.role = "ADMIN"
+        # Existing account: In production, NEVER overwrite password!
+        if not is_prod:
+            admin.password_hash = get_password_hash(admin_pass)
+            admin.is_active = True
+            admin.role = "ADMIN"
+
+    # Only create demo accounts in development or when explicitly requested
+    if not seed_demo:
+        db.commit()
+        return
 
     # 2. Front Desk
     frontdesk = db.query(User).filter(User.email == "frontdesk@hospital.com").first()
@@ -68,9 +99,10 @@ def ensure_demo_accounts(db: SessionLocal):
         db.add(frontdesk)
         db.flush()
     else:
-        frontdesk.password_hash = get_password_hash("FrontDesk@123")
-        frontdesk.is_active = True
-        frontdesk.role = "FRONT_DESK"
+        if not is_prod:
+            frontdesk.password_hash = get_password_hash("FrontDesk@123")
+            frontdesk.is_active = True
+            frontdesk.role = "FRONT_DESK"
 
     # 3. Patient
     pat_user = db.query(User).filter(User.email == "patient@hospital.com").first()
@@ -86,11 +118,12 @@ def ensure_demo_accounts(db: SessionLocal):
         db.add(pat_user)
         db.flush()
     else:
-        pat_user.password_hash = get_password_hash("Patient@123")
-        pat_user.is_active = True
-        pat_user.role = "PATIENT"
+        if not is_prod:
+            pat_user.password_hash = get_password_hash("Patient@123")
+            pat_user.is_active = True
+            pat_user.role = "PATIENT"
 
-    if not pat_user.patient_profile:
+    if pat_user and not pat_user.patient_profile:
         pat_prof = Patient(
             user_id=pat_user.id,
             date_of_birth=date(1988, 5, 14),
@@ -128,11 +161,12 @@ def ensure_demo_accounts(db: SessionLocal):
             db.add(doc_u)
             db.flush()
         else:
-            doc_u.password_hash = get_password_hash("Doctor@123")
-            doc_u.is_active = True
-            doc_u.role = "DOCTOR"
+            if not is_prod:
+                doc_u.password_hash = get_password_hash("Doctor@123")
+                doc_u.is_active = True
+                doc_u.role = "DOCTOR"
 
-        if not doc_u.doctor_profile:
+        if doc_u and not doc_u.doctor_profile:
             doc_p = Doctor(
                 user_id=doc_u.id,
                 department_id=first_dept.id,
@@ -164,9 +198,10 @@ def ensure_demo_accounts(db: SessionLocal):
         db.add(super_admin)
         db.flush()
     else:
-        super_admin.password_hash = get_password_hash("Super@123")
-        super_admin.is_active = True
-        super_admin.role = "SUPER_ADMIN"
+        if not is_prod:
+            super_admin.password_hash = get_password_hash("Super@123")
+            super_admin.is_active = True
+            super_admin.role = "SUPER_ADMIN"
 
     # 6. Organization Admin
     org_admin = db.query(User).filter(User.email == "orgadmin@hospital.com").first()
@@ -182,9 +217,10 @@ def ensure_demo_accounts(db: SessionLocal):
         db.add(org_admin)
         db.flush()
     else:
-        org_admin.password_hash = get_password_hash("Org@123")
-        org_admin.is_active = True
-        org_admin.role = "ORGANIZATION_ADMIN"
+        if not is_prod:
+            org_admin.password_hash = get_password_hash("Org@123")
+            org_admin.is_active = True
+            org_admin.role = "ORGANIZATION_ADMIN"
 
     # Ensure Organization and Branches
     try:
@@ -240,40 +276,44 @@ def ensure_demo_accounts(db: SessionLocal):
 def ensure_tenant_columns(db_engine):
     """Ensures multi-tenant columns exist on legacy database tables safely."""
     try:
+        from sqlalchemy import inspect
+        insp = inspect(db_engine)
+        dialect = db_engine.dialect.name
         with db_engine.connect() as conn:
-            dialect = db_engine.dialect.name
             target_cols = [
-                ("users", "clinic_id", "VARCHAR(36)"),
-                ("departments", "clinic_id", "VARCHAR(36)"),
-                ("appointments", "clinic_id", "VARCHAR(36)"),
-                ("reports", "clinic_id", "VARCHAR(36)"),
-                ("appointments", "appointment_type", "VARCHAR(50) DEFAULT 'NEW_CONSULTATION'"),
-                ("appointments", "token_number", "VARCHAR(20)"),
-                ("appointments", "queue_status", "VARCHAR(30) DEFAULT 'NOT_QUEUED'"),
-                ("appointments", "checked_in_at", "DATETIME"),
-                ("appointments", "consultation_started_at", "DATETIME"),
-                ("appointments", "consultation_ended_at", "DATETIME"),
-                ("appointments", "is_walk_in", "BOOLEAN DEFAULT 0"),
-                ("appointments", "parent_appointment_id", "VARCHAR(36)"),
-                ("doctors", "break_start_time", "VARCHAR(10) DEFAULT '13:00'"),
-                ("doctors", "break_end_time", "VARCHAR(10) DEFAULT '14:00'"),
-                ("doctors", "max_daily_patients", "INTEGER DEFAULT 30"),
+                ("users", "clinic_id", "VARCHAR(36)", "VARCHAR(36)"),
+                ("departments", "clinic_id", "VARCHAR(36)", "VARCHAR(36)"),
+                ("appointments", "clinic_id", "VARCHAR(36)", "VARCHAR(36)"),
+                ("reports", "clinic_id", "VARCHAR(36)", "VARCHAR(36)"),
+                ("appointments", "appointment_type", "VARCHAR(50) DEFAULT 'NEW_CONSULTATION'", "VARCHAR(50) DEFAULT 'NEW_CONSULTATION'"),
+                ("appointments", "token_number", "VARCHAR(20)", "VARCHAR(20)"),
+                ("appointments", "queue_status", "VARCHAR(30) DEFAULT 'NOT_QUEUED'", "VARCHAR(30) DEFAULT 'NOT_QUEUED'"),
+                ("appointments", "checked_in_at", "DATETIME", "TIMESTAMP WITH TIME ZONE"),
+                ("appointments", "consultation_started_at", "DATETIME", "TIMESTAMP WITH TIME ZONE"),
+                ("appointments", "consultation_ended_at", "DATETIME", "TIMESTAMP WITH TIME ZONE"),
+                ("appointments", "is_walk_in", "BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE"),
+                ("appointments", "parent_appointment_id", "VARCHAR(36)", "VARCHAR(36)"),
+                ("doctors", "break_start_time", "VARCHAR(10) DEFAULT '13:00'", "VARCHAR(10) DEFAULT '13:00'"),
+                ("doctors", "break_end_time", "VARCHAR(10) DEFAULT '14:00'", "VARCHAR(10) DEFAULT '14:00'"),
+                ("doctors", "max_daily_patients", "INTEGER DEFAULT 30", "INTEGER DEFAULT 30"),
             ]
             if dialect == "sqlite":
-                for tbl, col, col_type in target_cols:
+                for tbl, col, sqlite_type, _ in target_cols:
                     try:
-                        res = conn.execute(text(f"PRAGMA table_info({tbl})")).fetchall()
-                        cols = [r[1] for r in res]
-                        if cols and col not in cols:
-                            conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} {col_type}"))
-                            conn.commit()
+                        if insp.has_table(tbl):
+                            res = conn.execute(text(f"PRAGMA table_info({tbl})")).fetchall()
+                            cols = [r[1] for r in res]
+                            if cols and col not in cols:
+                                conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} {sqlite_type}"))
+                                conn.commit()
                     except Exception as err:
                         print(f"[Seed Migration Notice] {tbl}.{col}: {err}")
             elif dialect == "postgresql":
-                for tbl, col, col_type in target_cols:
+                for tbl, col, _, pg_type in target_cols:
                     try:
-                        conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS {col} {col_type}"))
-                        conn.commit()
+                        if insp.has_table(tbl):
+                            conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS {col} {pg_type}"))
+                            conn.commit()
                     except Exception as err:
                         print(f"[Seed PG Migration Notice] {tbl}.{col}: {err}")
     except Exception as e:
@@ -282,8 +322,8 @@ def ensure_tenant_columns(db_engine):
 
 def seed_database():
     print("Initializing database tables...")
-    ensure_tenant_columns(engine)
     Base.metadata.create_all(bind=engine)
+    ensure_tenant_columns(engine)
     db = SessionLocal()
 
     try:

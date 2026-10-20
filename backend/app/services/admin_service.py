@@ -20,6 +20,7 @@ class AdminService:
         # Counts
         total_patients = db.query(func.count(Patient.id)).scalar() or 0
         total_doctors = db.query(func.count(Doctor.id)).filter(Doctor.is_active == True).scalar() or 0
+        total_users = db.query(func.count(User.id)).scalar() or 0
         today_appointments = db.query(func.count(Appointment.id)).filter(
             Appointment.appointment_date == today,
             Appointment.status != "cancelled"
@@ -99,6 +100,7 @@ class AdminService:
             metrics=MetricSummary(
                 total_patients=total_patients,
                 total_doctors=total_doctors,
+                total_users=total_users,
                 today_appointments=today_appointments,
                 upcoming_appointments=upcoming_appointments,
                 pending_appointments=pending_appointments,

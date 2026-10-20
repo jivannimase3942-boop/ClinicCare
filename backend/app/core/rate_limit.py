@@ -88,15 +88,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     }
 
     def _get_client_ip(self, request: Request) -> str:
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return real_ip.strip()
-        if request.client:
-            return request.client.host
-        return "127.0.0.1"
+        from app.core.security import get_client_ip
+        return get_client_ip(request)
 
     def _categorize_path(self, path: str) -> Optional[str]:
         # Health checks, static docs, and root endpoints are unthrottled
@@ -110,6 +103,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             "/api/auth/login",
             "/api/auth/register",
             "/api/auth/google",
+            "/api/auth/logout",
+            "/api/auth/change-password",
             "/api/security/change-password",
         )):
             return "auth"

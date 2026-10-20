@@ -13,7 +13,7 @@ interface AuthContextType {
   loginWithGoogle: (googleToken: string, role?: string) => Promise<User>
   register: (payload: RegisterPayload) => Promise<User>
   setSession: (accessToken: string, user: User) => void
-  logout: () => void
+  logout: () => Promise<void>
   refreshUser: () => Promise<void>
   hasRole: (roles: UserRole | UserRole[]) => boolean
 }
@@ -115,13 +115,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
-  const logout = () => {
-    setUser(null)
-    setToken(null)
-    localStorage.removeItem('cliniccare_token')
-    localStorage.removeItem('cliniccare_user')
-    localStorage.removeItem('carepulse_token')
-    localStorage.removeItem('carepulse_user')
+  const logout = async () => {
+    try {
+      await authService.logout()
+    } catch {
+      // Safe fallback: continue to clear client state
+    } finally {
+      setUser(null)
+      setToken(null)
+      localStorage.removeItem('cliniccare_token')
+      localStorage.removeItem('cliniccare_user')
+      localStorage.removeItem('carepulse_token')
+      localStorage.removeItem('carepulse_user')
+    }
   }
 
   const hasRole = (roles: UserRole | UserRole[]): boolean => {

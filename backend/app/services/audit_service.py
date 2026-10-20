@@ -20,6 +20,7 @@ class AuditService:
         details: Optional[Any] = None,
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
+        auto_commit: bool = True,
     ) -> Optional[AuditLog]:
         try:
             resolved_uid = user.id if user else user_id
@@ -50,15 +51,21 @@ class AuditService:
                 user_agent=user_agent,
             )
             db.add(audit_entry)
-            db.commit()
-            db.refresh(audit_entry)
+            if auto_commit:
+                db.commit()
+                db.refresh(audit_entry)
+            else:
+                db.flush()
             return audit_entry
         except Exception as e:
             print(f"[AuditService] Warning: Failed to record audit log: {e}")
-            try:
-                db.rollback()
-            except Exception:
-                pass
+            if auto_commit:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+            else:
+                raise
             return None
 
     @staticmethod

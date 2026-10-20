@@ -509,13 +509,32 @@ class AuthService:
 
     @staticmethod
     def authenticate_user(db: Session, login_data: UserLogin) -> Optional[User]:
-        user = db.query(User).filter(User.email == login_data.email.lower()).first()
-        if not user:
+        normalized_email = login_data.email.strip().lower()
+        user = db.query(User).filter(User.email == normalized_email).first()
+        if not user or not verify_password(login_data.password, user.password_hash):
+            if user:
+                user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+                db.commit()
             return None
-        if not verify_password(login_data.password, user.password_hash):
-            return None
+
         if not user.is_active:
             raise ValueError("User account is disabled")
+
+        if user.clinic_id:
+            from app.models.clinic import Clinic
+            clinic = db.query(Clinic).filter(Clinic.id == user.clinic_id).first()
+            if clinic and not clinic.is_active:
+                raise ValueError("Clinic tenant account is suspended or disabled")
+
+        if user.branch_id:
+            from app.models.organization import Branch
+            branch = db.query(Branch).filter(Branch.id == user.branch_id).first()
+            if branch and not branch.is_active:
+                raise ValueError("Assigned branch account is inactive")
+
+        user.failed_login_attempts = 0
+        user.last_login_at = datetime.now(timezone.utc)
+        db.commit()
         return user
 
     @staticmethod
@@ -523,6 +542,7 @@ class AuthService:
         user: User,
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
+        db: Optional[Session] = None,
     ) -> str:
         import uuid
         token_jti = str(uuid.uuid4())
@@ -538,20 +558,24 @@ class AuthService:
         # Track active session in database
         try:
             from app.models.security_privacy import UserSession
-            from app.db.session import SessionLocal
-            with SessionLocal() as session_db:
-                expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-                new_session = UserSession(
-                    user_id=user.id,
-                    token_jti=token_jti,
-                    ip_address=ip_address,
-                    user_agent=user_agent[:255] if user_agent else None,
-                    is_active=True,
-                    last_activity_at=datetime.now(timezone.utc),
-                    expires_at=expires_at,
-                )
-                session_db.add(new_session)
-                session_db.commit()
+            expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+            new_session = UserSession(
+                user_id=user.id,
+                token_jti=token_jti,
+                ip_address=ip_address,
+                user_agent=user_agent[:255] if user_agent else None,
+                is_active=True,
+                last_activity_at=datetime.now(timezone.utc),
+                expires_at=expires_at,
+            )
+            if db is not None:
+                db.add(new_session)
+                db.commit()
+            else:
+                from app.db.session import SessionLocal
+                with SessionLocal() as session_db:
+                    session_db.add(new_session)
+                    session_db.commit()
         except Exception as e:
             print(f"[AuthService] Note tracking user session: {e}")
 
@@ -594,6 +618,7 @@ class AuthService:
             role=user.role,
             is_active=user.is_active,
             created_at=user.created_at,
+            last_login_at=user.last_login_at,
             patient_profile=patient_resp,
             doctor_profile=doctor_resp,
             clinic_id=user.clinic_id,

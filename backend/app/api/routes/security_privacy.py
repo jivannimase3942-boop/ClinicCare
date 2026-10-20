@@ -22,6 +22,7 @@ from app.schemas.security_privacy import (
 from app.models.user import User
 from app.services.security_privacy_service import security_privacy_service
 from app.api.dependencies import get_current_user, require_roles
+from app.core.security import get_client_ip, get_client_user_agent
 
 
 router = APIRouter(prefix="", tags=["Security, Privacy & Consent"])
@@ -56,9 +57,12 @@ def get_user_sessions(
 
 @router.post("/security/sessions/logout-current", response_model=ApiResponse[dict])
 def logout_current_session(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    ip = get_client_ip(request)
+    ua = get_client_user_agent(request)
     current_jti = getattr(current_user, "current_jti", None)
     if current_jti:
         security_privacy_service.revoke_session(db, current_user.id, current_jti)
@@ -69,6 +73,8 @@ def logout_current_session(
         user_email=current_user.email,
         clinic_id=current_user.clinic_id,
         severity="INFO",
+        ip_address=ip,
+        user_agent=ua,
         details="User logged out of current active session",
     )
     return ApiResponse(success=True, message="Current session successfully terminated", data={"status": "revoked"})
@@ -76,9 +82,12 @@ def logout_current_session(
 
 @router.post("/security/sessions/logout-all", response_model=ApiResponse[dict])
 def logout_all_sessions(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    ip = get_client_ip(request)
+    ua = get_client_user_agent(request)
     count = security_privacy_service.revoke_all_sessions(db, current_user.id)
     security_privacy_service.record_security_event(
         db=db,
@@ -87,6 +96,8 @@ def logout_all_sessions(
         user_email=current_user.email,
         clinic_id=current_user.clinic_id,
         severity="INFO",
+        ip_address=ip,
+        user_agent=ua,
         details=f"All {count} active sessions revoked by user request",
     )
     return ApiResponse(success=True, message=f"Successfully terminated {count} active sessions", data={"revoked_count": count})

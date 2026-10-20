@@ -419,6 +419,7 @@ export interface AIChatResponse {
 export interface MetricSummary {
   total_patients: number
   total_doctors: number
+  total_users?: number
   today_appointments: number
   upcoming_appointments: number
   pending_appointments: number
@@ -432,6 +433,44 @@ export interface MetricSummary {
   feedback_count: number
   ai_conversations_count: number
   average_rating: number
+}
+
+export interface AdminUser {
+  id: string
+  email: string
+  full_name: string
+  phone?: string | null
+  role: string
+  is_active: boolean
+  created_at?: string | null
+  last_login_at?: string | null
+  failed_login_attempts: number
+}
+
+export interface AdminUserListResponse {
+  total: number
+  page: number
+  page_size: number
+  users: AdminUser[]
+}
+
+export interface LoginActivityItem {
+  id: string
+  user_id?: string | null
+  user_email?: string | null
+  event_type: string
+  severity: string
+  ip_address?: string | null
+  user_agent?: string | null
+  details?: string | null
+  created_at?: string | null
+}
+
+export interface LoginActivityListResponse {
+  total: number
+  page: number
+  page_size: number
+  items: LoginActivityItem[]
 }
 
 export interface ChartDataPoint {

@@ -1,0 +1,605 @@
+import json
+import pytest
+from datetime import datetime, timezone
+from unittest.mock import patch
+from app.models.user import User, EmailVerification
+from app.models.security_privacy import SecurityEvent, UserSession
+from app.models.clinic import Clinic
+from app.models.organization import Branch, Organization
+from app.core.security import get_password_hash
+
+
+def test_password_login_audit_success(client, seed_test_data, db_session):
+    login_payload = {
+        "email": "patient@hospital.com",
+        "password": "Patient@123"
+    }
+    response = client.post("/api/auth/login", json=login_payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert "access_token" in data["data"]
+    assert data["data"]["user"]["last_login_at"] is not None
+
+    # Verify user record updated in database
+    user = db_session.query(User).filter(User.email == "patient@hospital.com").first()
+    assert user.last_login_at is not None
+    assert user.failed_login_attempts == 0
+
+    # Verify security audit event recorded
+    event = db_session.query(SecurityEvent).filter(
+        SecurityEvent.user_email == "patient@hospital.com",
+        SecurityEvent.event_type == "LOGIN_SUCCESS"
+    ).first()
+    assert event is not None
+    assert event.severity == "INFO"
+    assert "password" in event.details
+    # Ensure sensitive credentials are NEVER logged
+    assert "Patient@123" not in event.details
+    assert "password_hash" not in event.details
+
+
+def test_password_login_audit_failure(client, seed_test_data, db_session):
+    login_payload = {
+        "email": "patient@hospital.com",
+        "password": "WrongPassword123!"
+    }
+    response = client.post("/api/auth/login", json=login_payload)
+    assert response.status_code == 401
+
+    # Verify failed login attempts counter incremented
+    user = db_session.query(User).filter(User.email == "patient@hospital.com").first()
+    assert user.failed_login_attempts >= 1
+
+    # Verify LOGIN_FAILED security event logged
+    event = db_session.query(SecurityEvent).filter(
+        SecurityEvent.user_email == "patient@hospital.com",
+        SecurityEvent.event_type == "LOGIN_FAILED"
+    ).first()
+    assert event is not None
+    assert event.severity == "WARNING"
+    # Ensure raw password attempt is NEVER logged
+    assert "WrongPassword123!" not in event.details
+
+
+def test_login_otp_audit_success_and_failure(client, seed_test_data, db_session):
+    email = "patient@hospital.com"
+    otp_code = "654321"
+
+    # Pre-seed valid login OTP
+    ev = EmailVerification(
+        email=email,
+        otp_hash=get_password_hash(otp_code),
+        attempts=0,
+        max_attempts=5,
+        is_verified=False,
+        purpose="login",
+        expires_at=datetime.now(timezone.utc),
+    )
+    from datetime import timedelta
+    ev.expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    db_session.add(ev)
+    db_session.commit()
+
+    # 1. Test wrong OTP failure
+    fail_resp = client.post("/api/auth/login/verify-otp", json={"email": email, "otp": "000000"})
+    assert fail_resp.status_code == 400
+
+    fail_event = db_session.query(SecurityEvent).filter(
+        SecurityEvent.user_email == email,
+        SecurityEvent.event_type == "LOGIN_FAILED"
+    ).first()
+    assert fail_event is not None
+    assert "000000" not in fail_event.details
+
+    # 2. Test correct OTP success
+    success_resp = client.post("/api/auth/login/verify-otp", json={"email": email, "otp": otp_code})
+    assert success_resp.status_code == 200
+    assert success_resp.json()["data"]["user"]["last_login_at"] is not None
+
+    success_event = db_session.query(SecurityEvent).filter(
+        SecurityEvent.user_email == email,
+        SecurityEvent.event_type == "LOGIN_SUCCESS"
+    ).order_by(SecurityEvent.created_at.desc()).first()
+    assert success_event is not None
+    assert "email_otp" in success_event.details
+    assert otp_code not in success_event.details
+
+
+def test_google_login_audit(client, seed_test_data, db_session):
+    mock_payload = {
+        "email": "googletest@hospital.com",
+        "email_verified": True,
+        "name": "Google Test User",
+        "picture": "https://example.com/pic.jpg",
+        "iss": "https://accounts.google.com",
+        "aud": "mock-aud",
+    }
+
+    with patch("app.services.auth_service.AuthService._fetch_google_token_info", return_value=mock_payload):
+        resp = client.post("/api/auth/google", json={"id_token": "mock-secret-token", "role": "PATIENT"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+
+        event = db_session.query(SecurityEvent).filter(
+            SecurityEvent.user_email == "googletest@hospital.com",
+            SecurityEvent.event_type == "LOGIN_SUCCESS"
+        ).first()
+        assert event is not None
+        assert "google_sso" in event.details
+        # Raw token must not be in audit logs
+        assert "mock-secret-token" not in event.details
+
+
+def test_logout_session_revocation(client, seed_test_data, db_session):
+    # 1. Login to get a valid token with a tracked session
+    login_resp = client.post("/api/auth/login", json={"email": "patient@hospital.com", "password": "Patient@123"})
+    assert login_resp.status_code == 200
+    token = login_resp.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 2. Verify token is initially active and works
+    me_resp = client.get("/api/auth/me", headers=headers)
+    assert me_resp.status_code == 200
+
+    # 3. Call server-side logout endpoint
+    logout_resp = client.post("/api/auth/logout", headers=headers)
+    assert logout_resp.status_code == 200
+    assert logout_resp.json()["success"] is True
+
+    # 4. Verify LOGOUT security event recorded
+    logout_event = db_session.query(SecurityEvent).filter(
+        SecurityEvent.user_email == "patient@hospital.com",
+        SecurityEvent.event_type == "LOGOUT"
+    ).first()
+    assert logout_event is not None
+
+    # 5. Verify the SAME token is now REJECTED with 401 Unauthorized
+    rejected_resp = client.get("/api/auth/me", headers=headers)
+    assert rejected_resp.status_code == 401
+    assert "revoked" in rejected_resp.json()["detail"].lower() or "terminated" in rejected_resp.json()["detail"].lower()
+
+
+def test_admin_user_directory_rbac(client, seed_test_data):
+    # 1. Unauthenticated request rejected
+    resp_unauth = client.get("/api/admin/users")
+    assert resp_unauth.status_code == 401
+
+    # 2. Patient role rejected
+    pat_login = client.post("/api/auth/login", json={"email": "patient@hospital.com", "password": "Patient@123"})
+    pat_token = pat_login.json()["data"]["access_token"]
+    resp_pat = client.get("/api/admin/users", headers={"Authorization": f"Bearer {pat_token}"})
+    assert resp_pat.status_code == 403
+
+    # 3. Admin role authorized
+    admin_login = client.post("/api/auth/login", json={"email": "admin@hospital.com", "password": "Admin@123"})
+    admin_token = admin_login.json()["data"]["access_token"]
+    resp_admin = client.get("/api/admin/users", headers={"Authorization": f"Bearer {admin_token}"})
+    assert resp_admin.status_code == 200
+    data = resp_admin.json()["data"]
+    assert "total" in data
+    assert "users" in data
+    assert data["total"] >= 3
+
+
+def test_admin_user_search_and_filters(client, seed_test_data):
+    admin_login = client.post("/api/auth/login", json={"email": "admin@hospital.com", "password": "Admin@123"})
+    admin_token = admin_login.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # Search by full name
+    search_resp = client.get("/api/admin/users", params={"search": "John Patient"}, headers=headers)
+    assert search_resp.status_code == 200
+    search_users = search_resp.json()["data"]["users"]
+    assert len(search_users) == 1
+    assert search_users[0]["email"] == "patient@hospital.com"
+
+    # Filter by role
+    doc_resp = client.get("/api/admin/users", params={"role": "DOCTOR"}, headers=headers)
+    assert doc_resp.status_code == 200
+    for u in doc_resp.json()["data"]["users"]:
+        assert u["role"] == "DOCTOR"
+
+    # Filter by is_active
+    active_resp = client.get("/api/admin/users", params={"is_active": True}, headers=headers)
+    assert active_resp.status_code == 200
+    for u in active_resp.json()["data"]["users"]:
+        assert u["is_active"] is True
+
+
+def test_admin_user_status_activation_deactivation(client, seed_test_data, db_session):
+    admin_login = client.post("/api/auth/login", json={"email": "admin@hospital.com", "password": "Admin@123"})
+    admin_token = admin_login.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    patient_user = db_session.query(User).filter(User.email == "patient@hospital.com").first()
+
+    # 1. Admin deactivates patient
+    deactivate_resp = client.patch(
+        f"/api/admin/users/{patient_user.id}/status",
+        json={"is_active": False, "reason": "Security hold"},
+        headers=headers
+    )
+    assert deactivate_resp.status_code == 200
+    assert deactivate_resp.json()["data"]["is_active"] is False
+
+    # 2. Deactivated user cannot login
+    pat_login = client.post("/api/auth/login", json={"email": "patient@hospital.com", "password": "Patient@123"})
+    assert pat_login.status_code == 403
+
+    # 3. Admin reactivates patient
+    activate_resp = client.patch(
+        f"/api/admin/users/{patient_user.id}/status",
+        json={"is_active": True, "reason": "Verification complete"},
+        headers=headers
+    )
+    assert activate_resp.status_code == 200
+    assert activate_resp.json()["data"]["is_active"] is True
+
+    # 4. Reactivated user can now login
+    pat_login_success = client.post("/api/auth/login", json={"email": "patient@hospital.com", "password": "Patient@123"})
+    assert pat_login_success.status_code == 200
+
+
+def test_admin_cannot_deactivate_last_active_admin(client, seed_test_data, db_session):
+    admin_user = db_session.query(User).filter(User.email == "admin@hospital.com").first()
+    admin_login = client.post("/api/auth/login", json={"email": "admin@hospital.com", "password": "Admin@123"})
+    admin_token = admin_login.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # Attempt to deactivate the only administrator
+    resp = client.patch(
+        f"/api/admin/users/{admin_user.id}/status",
+        json={"is_active": False, "reason": "Self test"},
+        headers=headers
+    )
+    assert resp.status_code == 400
+    detail = resp.json()["detail"].lower()
+    assert "last active administrator" in detail or "cannot deactivate" in detail
+
+
+def test_admin_cannot_deactivate_self(client, seed_test_data, db_session):
+    # Add a second admin so it's not the last admin
+    second_admin = User(
+        email="admin2@hospital.com",
+        password_hash=get_password_hash("Admin@456"),
+        full_name="Second Admin",
+        role="ADMIN",
+        is_active=True,
+    )
+    db_session.add(second_admin)
+    db_session.commit()
+
+    admin_login = client.post("/api/auth/login", json={"email": "admin@hospital.com", "password": "Admin@123"})
+    admin_token = admin_login.json()["data"]["access_token"]
+    admin_user = db_session.query(User).filter(User.email == "admin@hospital.com").first()
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # Attempt to deactivate self
+    resp = client.patch(
+        f"/api/admin/users/{admin_user.id}/status",
+        json={"is_active": False},
+        headers=headers
+    )
+    assert resp.status_code == 400
+    assert "own account" in resp.json()["detail"].lower()
+
+
+def test_admin_login_activity_endpoint(client, seed_test_data, db_session):
+    admin_login = client.post("/api/auth/login", json={"email": "admin@hospital.com", "password": "Admin@123"})
+    admin_token = admin_login.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # 1. Non-admin forbidden
+    pat_login = client.post("/api/auth/login", json={"email": "patient@hospital.com", "password": "Patient@123"})
+    pat_token = pat_login.json()["data"]["access_token"]
+    forbidden_resp = client.get("/api/admin/security/login-activity", headers={"Authorization": f"Bearer {pat_token}"})
+    assert forbidden_resp.status_code == 403
+
+    # 2. Admin can list activity
+    resp = client.get("/api/admin/security/login-activity", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert "total" in data
+    assert "items" in data
+    assert data["total"] >= 1
+
+    # 3. Filter by event_type
+    filtered_resp = client.get("/api/admin/security/login-activity", params={"event_type": "LOGIN_SUCCESS"}, headers=headers)
+    assert filtered_resp.status_code == 200
+    for item in filtered_resp.json()["data"]["items"]:
+        assert item["event_type"] == "LOGIN_SUCCESS"
+
+
+def test_login_activity_date_validation_strict(client, seed_test_data):
+    admin_login = client.post("/api/auth/login", json={"email": "admin@hospital.com", "password": "Admin@123"})
+    admin_token = admin_login.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # 1. Invalid start_date returns 422
+    resp_bad_start = client.get("/api/admin/security/login-activity", params={"start_date": "invalid-start-date"}, headers=headers)
+    assert resp_bad_start.status_code == 422
+    assert "start_date" in resp_bad_start.json()["detail"].lower()
+
+    # 2. Invalid end_date returns 422
+    resp_bad_end = client.get("/api/admin/security/login-activity", params={"end_date": "not-a-valid-date"}, headers=headers)
+    assert resp_bad_end.status_code == 422
+    assert "end_date" in resp_bad_end.json()["detail"].lower()
+
+    # 3. start_date > end_date returns 422
+    resp_inverted = client.get(
+        "/api/admin/security/login-activity",
+        params={"start_date": "2026-12-01", "end_date": "2026-01-01"},
+        headers=headers
+    )
+    assert resp_inverted.status_code == 422
+    assert "start_date" in resp_inverted.json()["detail"].lower()
+
+    # 4. Valid ISO-8601 dates return 200
+    resp_valid = client.get(
+        "/api/admin/security/login-activity",
+        params={"start_date": "2026-01-01T00:00:00Z", "end_date": "2026-12-31T23:59:59Z"},
+        headers=headers
+    )
+    assert resp_valid.status_code == 200
+    assert "items" in resp_valid.json()["data"]
+
+
+def test_login_activity_details_redaction_and_allowlisting(client, seed_test_data, db_session):
+    admin_login = client.post("/api/auth/login", json={"email": "admin@hospital.com", "password": "Admin@123"})
+    admin_token = admin_login.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # Seed an event containing sensitive keys (password, otp, token, api_key, medical info)
+    sensitive_details = {
+        "password": "RawPlaintextPassword999!",
+        "password_hash": "$2b$12$e8q4V3qW4q0s2p3j4k5l6m7n8o9p0q1r2s3t4u5v6w7x8y9z0a1b2",
+        "otp": "839102",
+        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.doNotLeakThisSignature",
+        "api_key": "mock_test_api_key_string_val_99887766",
+        "diagnosis": "Acute confidential medical diagnosis",
+        "prescription": "Controlled substance 50mg daily",
+        "method": "password",
+        "outcome": "failed",
+        "reason": "invalid_credentials",
+    }
+    raw_event = SecurityEvent(
+        user_email="patient@hospital.com",
+        event_type="LOGIN_FAILED",
+        severity="WARNING",
+        ip_address="198.51.100.22",
+        details=json.dumps(sensitive_details),
+    )
+    db_session.add(raw_event)
+    db_session.commit()
+
+    resp = client.get("/api/admin/security/login-activity", headers=headers)
+    assert resp.status_code == 200
+    resp_text = resp.text
+
+    # Strict check: none of the sensitive values must appear in the HTTP response body
+    assert "RawPlaintextPassword999!" not in resp_text
+    assert "839102" not in resp_text
+    assert "doNotLeakThisSignature" not in resp_text
+    assert "mock_test_api_key_string_val_99887766" not in resp_text
+    assert "Acute confidential medical diagnosis" not in resp_text
+    assert "Controlled substance" not in resp_text
+
+    # Verify that the parsed event item only contains allowlisted keys
+    found_event = None
+    for item in resp.json()["data"]["items"]:
+        if item["id"] == raw_event.id:
+            found_event = item
+            break
+    assert found_event is not None
+    parsed_details = json.loads(found_event["details"])
+    assert "password" not in parsed_details
+    assert "otp" not in parsed_details
+    assert "access_token" not in parsed_details
+    assert "api_key" not in parsed_details
+    assert "diagnosis" not in parsed_details
+    assert "prescription" not in parsed_details
+    # Safe allowlisted keys must be preserved
+    assert parsed_details.get("method") == "password"
+    assert parsed_details.get("outcome") == "failed"
+    assert parsed_details.get("reason") == "invalid_credentials"
+
+
+def test_admin_update_user_status_atomic_rollback(client, seed_test_data, db_session):
+    admin_login = client.post("/api/auth/login", json={"email": "admin@hospital.com", "password": "Admin@123"})
+    admin_token = admin_login.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # Create a user with an active session
+    user = User(
+        email="atomic_test_user@hospital.com",
+        password_hash=get_password_hash("TestPass123!"),
+        full_name="Atomic Test User",
+        role="PATIENT",
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    from datetime import timedelta
+    session_record = UserSession(
+        user_id=user.id,
+        token_jti="atomic-test-jti-1234",
+        is_active=True,
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    db_session.add(session_record)
+    db_session.commit()
+
+    # Simulate unexpected failure during security event generation
+    simulated_secret_err = "CRITICAL_INTERNAL_DB_SECRET_FAILURE_12345"
+    with patch(
+        "app.services.security_privacy_service.SecurityPrivacyService.record_security_event",
+        side_effect=RuntimeError(simulated_secret_err),
+    ):
+        patch_resp = client.patch(
+            f"/api/admin/users/{user.id}/status",
+            json={"is_active": False, "reason": "Test atomic rollback"},
+            headers=headers,
+        )
+        assert patch_resp.status_code == 500
+        # Ensure raw internal exception text is NEVER disclosed to client
+        assert simulated_secret_err not in patch_resp.text
+        assert patch_resp.json()["detail"] == "An error occurred while updating user status. All changes have been rolled back."
+
+    # In database: user.is_active must still be True due to complete rollback!
+    db_session.expire_all()
+    reloaded_user = db_session.query(User).filter(User.id == user.id).first()
+    assert reloaded_user.is_active is True
+
+    # In database: user session must still be active!
+    reloaded_sess = db_session.query(UserSession).filter(UserSession.token_jti == "atomic-test-jti-1234").first()
+    assert reloaded_sess.is_active is True
+
+    # In database: no STAFF_DEACTIVATION event was committed for this user
+    evt = db_session.query(SecurityEvent).filter(
+        SecurityEvent.user_id == user.id,
+        SecurityEvent.event_type == "STAFF_DEACTIVATION"
+    ).first()
+    assert evt is None
+
+
+def test_login_rejected_when_clinic_tenant_is_inactive(client, seed_test_data, db_session):
+    # 1. Create a suspended clinic
+    suspended_clinic = Clinic(
+        name="Suspended Clinic",
+        slug="suspended-clinic",
+        phone="+91 80 0000 0000",
+        is_active=False,  # Inactive tenant
+    )
+    db_session.add(suspended_clinic)
+    db_session.commit()
+
+    # 2. Create user linked to suspended clinic
+    user = User(
+        email="doctor_suspended@hospital.com",
+        password_hash=get_password_hash("DocPass123!"),
+        full_name="Suspended Doctor",
+        role="DOCTOR",
+        clinic_id=suspended_clinic.id,
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    # 3. Attempt login
+    login_resp = client.post(
+        "/api/auth/login",
+        json={"email": "doctor_suspended@hospital.com", "password": "DocPass123!"}
+    )
+    assert login_resp.status_code == 403
+    assert "suspended or disabled" in login_resp.json()["detail"].lower()
+
+    # 4. Verify LOGIN_FAILED audit event was recorded with tenant reason
+    event = db_session.query(SecurityEvent).filter(
+        SecurityEvent.user_email == "doctor_suspended@hospital.com",
+        SecurityEvent.event_type == "LOGIN_FAILED",
+    ).first()
+    assert event is not None
+    assert "tenant_or_branch_inactive" in event.details
+
+
+def test_login_rejected_when_branch_is_inactive(client, seed_test_data, db_session):
+    # 1. Create parent organization and an inactive branch
+    org = Organization(name="Closed Org", code="ORG-CLOSED")
+    db_session.add(org)
+    db_session.commit()
+
+    inactive_branch = Branch(
+        organization_id=org.id,
+        name="Closed Branch",
+        code="BR-CLOSED",
+        is_active=False,  # Inactive branch
+    )
+    db_session.add(inactive_branch)
+    db_session.commit()
+
+    # 2. Create user linked to inactive branch
+    user = User(
+        email="staff_closed_branch@hospital.com",
+        password_hash=get_password_hash("StaffPass123!"),
+        full_name="Closed Branch Staff",
+        role="FRONT_DESK",
+        branch_id=inactive_branch.id,
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    # 3. Attempt login
+    login_resp = client.post(
+        "/api/auth/login",
+        json={"email": "staff_closed_branch@hospital.com", "password": "StaffPass123!"}
+    )
+    assert login_resp.status_code == 403
+    assert "branch account is inactive" in login_resp.json()["detail"].lower()
+
+    # 4. Verify LOGIN_FAILED audit event recorded
+    event = db_session.query(SecurityEvent).filter(
+        SecurityEvent.user_email == "staff_closed_branch@hospital.com",
+        SecurityEvent.event_type == "LOGIN_FAILED",
+    ).first()
+    assert event is not None
+    assert "tenant_or_branch_inactive" in event.details
+
+
+def test_login_activity_malformed_and_plaintext_details_omitted(client, seed_test_data, db_session):
+    admin_login = client.post("/api/auth/login", json={"email": "admin@hospital.com", "password": "Admin@123"})
+    admin_token = admin_login.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # 1. Plain-text event record containing arbitrary personal/clinical details and credentials
+    plain_text_record = SecurityEvent(
+        user_email="patient@hospital.com",
+        event_type="LOGIN_FAILED",
+        severity="WARNING",
+        ip_address="198.51.100.30",
+        details="Patient Jane Doe (DOB: 1985-05-12) diagnosed with Acute Coronary Syndrome. Prescribed Atorvastatin 40mg. Attempted password: SecretPlainPassword!",
+    )
+
+    # 2. Malformed JSON legacy record
+    malformed_json_record = SecurityEvent(
+        user_email="patient@hospital.com",
+        event_type="LOGIN_FAILED",
+        severity="WARNING",
+        ip_address="198.51.100.31",
+        details='{"error": "Failed login for patient Bob with OTP 987654 and JWT eyJhbGciOi...", unclosed_quote:',
+    )
+
+    # 3. JSON array record
+    array_record = SecurityEvent(
+        user_email="patient@hospital.com",
+        event_type="LOGIN_FAILED",
+        severity="WARNING",
+        ip_address="198.51.100.32",
+        details='[{"diagnosis": "Confidential Clinical Condition", "api_key": "legacy_sample_vendor_key_9988"}]',
+    )
+
+    db_session.add_all([plain_text_record, malformed_json_record, array_record])
+    db_session.commit()
+
+    resp = client.get("/api/admin/security/login-activity", headers=headers)
+    assert resp.status_code == 200
+    resp_text = resp.text
+
+    # None of the sensitive arbitrary strings must be exposed in the HTTP response
+    assert "Jane Doe" not in resp_text
+    assert "Acute Coronary Syndrome" not in resp_text
+    assert "Atorvastatin" not in resp_text
+    assert "SecretPlainPassword!" not in resp_text
+    assert "987654" not in resp_text
+    assert "eyJhbGciOi" not in resp_text
+    assert "Confidential Clinical Condition" not in resp_text
+    assert "legacy_sample_vendor_key_9988" not in resp_text
+
+    # Verify that each of these non-dict records has details safely replaced with "[details omitted]"
+    items_by_id = {item["id"]: item for item in resp.json()["data"]["items"]}
+    assert items_by_id[plain_text_record.id]["details"] == "[details omitted]"
+    assert items_by_id[malformed_json_record.id]["details"] == "[details omitted]"
+    assert items_by_id[array_record.id]["details"] == "[details omitted]"

@@ -1,12 +1,18 @@
+import re
+import json
+import logging
 from datetime import date, datetime, timezone
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Query, Body, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, Request, status
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger("app.api.admin")
 from app.core.config import settings
 from app.db.session import get_db
 from app.schemas.common import ApiResponse
 from app.api.dependencies import require_roles, get_current_user
 from app.models.user import User, Patient, Doctor, Department
+from app.models.security_privacy import SecurityEvent
 from app.models.escalation import Escalation
 from app.models.ambulance import Ambulance, AmbulanceRequest
 from app.models.blood import BloodBank, BloodInventory
@@ -29,7 +35,18 @@ from app.services.reminder_service import reminder_service
 from app.services.emergency_service import emergency_service
 from app.services.audit_service import audit_service
 from app.services.clinic_service import clinic_service
-from app.schemas.admin import AdminDashboardStats, ErrorLogResponse, ErrorLogCreate
+from app.services.security_privacy_service import SecurityPrivacyService
+from app.core.security import get_client_ip, get_client_user_agent
+from app.schemas.admin import (
+    AdminDashboardStats,
+    ErrorLogResponse,
+    ErrorLogCreate,
+    AdminUserItem,
+    AdminUserListResponse,
+    AdminUserStatusUpdate,
+    LoginActivityItem,
+    LoginActivityListResponse,
+)
 from app.schemas.doctor import DoctorResponse, DepartmentResponse, DepartmentCreate, DoctorCreate
 from app.schemas.appointment import AppointmentResponse, AppointmentStatusUpdate
 from app.schemas.report import ReportResponse, ReportCreate, ReportUpdateStatus
@@ -329,4 +346,319 @@ def list_audit_logs(
     ]
     return ApiResponse(success=True, data=data)
 
+
+@router.get("/users", response_model=ApiResponse[AdminUserListResponse], dependencies=[strict_admin_auth])
+def list_admin_users(
+    search: Optional[str] = Query(None),
+    role: Optional[str] = Query(None),
+    is_active: Optional[bool] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    query = db.query(User)
+    if search:
+        s = f"%{search.strip().lower()}%"
+        query = query.filter(User.full_name.ilike(s) | User.email.ilike(s) | User.phone.ilike(s))
+    if role and role.upper() != "ALL":
+        query = query.filter(User.role == role.upper())
+    if is_active is not None:
+        query = query.filter(User.is_active == is_active)
+
+    total = query.count()
+    users = query.order_by(User.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+
+    user_items = [
+        AdminUserItem(
+            id=u.id,
+            email=u.email,
+            full_name=u.full_name,
+            phone=u.phone,
+            role=u.role,
+            is_active=u.is_active,
+            created_at=u.created_at,
+            last_login_at=u.last_login_at,
+            failed_login_attempts=u.failed_login_attempts or 0,
+        )
+        for u in users
+    ]
+
+    return ApiResponse(
+        success=True,
+        data=AdminUserListResponse(
+            total=total,
+            page=page,
+            page_size=page_size,
+            users=user_items,
+        ),
+    )
+
+
+# Allowed detail keys for security event inspection
+ALLOWED_SECURITY_DETAIL_KEYS = {
+    "method",
+    "outcome",
+    "reason",
+    "action_by_user_id",
+    "action_by_email",
+    "target_user_id",
+    "target_role",
+    "new_status",
+    "status",
+    "revoked_count",
+    "device",
+    "browser",
+    "os",
+    "platform",
+    "purpose",
+    "attempt_number",
+}
+
+# Regex patterns for sensitive credentials that must never be exposed
+_JWT_PATTERN = re.compile(r"eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]+")
+_BEARER_PATTERN = re.compile(r"Bearer\s+[a-zA-Z0-9_\-\.]+", re.IGNORECASE)
+_API_KEY_PATTERN = re.compile(r"\b(?:sk|pk|api|key)_[a-zA-Z0-9]{16,}\b", re.IGNORECASE)
+_PASSWORD_PATTERN = re.compile(r"(?i)(password|secret|hash|otp|token|ssn|mrn|diagnosis|prescription)[\s\"':=]+([^\s,}\"]+)")
+_SENSITIVE_KEY_NAMES = {
+    "password", "password_hash", "new_password", "old_password",
+    "secret", "token", "access_token", "refresh_token", "id_token",
+    "credential", "credentials", "otp", "otp_code", "code", "pin",
+    "api_key", "key", "authorization", "cookie", "cookies",
+    "ssn", "mrn", "diagnosis", "prescription", "medical_record", "clinical_notes"
+}
+
+
+def sanitize_security_details(raw_details: Optional[str]) -> Optional[str]:
+    """
+    Explicitly allowlists and redacts security event details before returning to admin client.
+    Guarantees that passwords, hashes, OTPs, JWTs, session tokens, API keys,
+    and sensitive clinical/personal information cannot leak.
+
+    - For valid JSON objects (dict): preserves only approved keys from ALLOWED_SECURITY_DETAIL_KEYS
+      while dropping sensitive keys and scrubbing sensitive string values. If no approved keys remain,
+      returns "[details omitted]".
+    - For malformed JSON, arbitrary plain-text, JSON arrays, or unknown formats:
+      returns a safe placeholder '[details omitted]' to prevent leaking arbitrary stored text.
+    """
+    if not raw_details:
+        return None
+
+    clean_str = str(raw_details).strip()
+    if not clean_str:
+        return None
+
+    try:
+        parsed = json.loads(clean_str)
+        if isinstance(parsed, dict):
+            clean_dict = {}
+            for k, v in parsed.items():
+                k_lower = str(k).strip().lower()
+                # 1. Reject any sensitive key name
+                if k_lower in _SENSITIVE_KEY_NAMES or any(
+                    s in k_lower for s in ("password", "token", "secret", "hash", "otp", "diagno", "prescrip", "patient", "clinical")
+                ):
+                    continue
+                # 2. Key must be in explicit allowlist
+                if k_lower in ALLOWED_SECURITY_DETAIL_KEYS:
+                    # Sanitize value if string
+                    if isinstance(v, str):
+                        v_clean = _JWT_PATTERN.sub("[REDACTED_JWT]", v)
+                        v_clean = _BEARER_PATTERN.sub("Bearer [REDACTED]", v_clean)
+                        v_clean = _API_KEY_PATTERN.sub("[REDACTED_KEY]", v_clean)
+                        clean_dict[k_lower] = v_clean
+                    elif isinstance(v, (int, float, bool)) or v is None:
+                        clean_dict[k_lower] = v
+            return json.dumps(clean_dict) if clean_dict else "[details omitted]"
+        else:
+            # JSON arrays, primitives, etc.
+            return "[details omitted]"
+    except Exception:
+        # Malformed JSON or arbitrary plain text: do not return arbitrary stored text
+        return "[details omitted]"
+
+
+@router.patch("/users/{user_id}/status", response_model=ApiResponse[AdminUserItem], dependencies=[strict_admin_auth])
+def update_user_status(
+    user_id: str,
+    payload: AdminUserStatusUpdate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    target_user = db.query(User).filter(User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Guard 1: Prevent disabling the last active administrator
+    if target_user.role in ["ADMIN", "SUPER_ADMIN"] and not payload.is_active:
+        active_admins = db.query(User).filter(
+            User.role.in_(["ADMIN", "SUPER_ADMIN"]),
+            User.is_active == True,
+        ).count()
+        if active_admins <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Operation rejected: Cannot deactivate the last active administrator",
+            )
+
+    # Guard 2: Prevent administrator from deactivating themselves
+    if target_user.id == current_user.id and not payload.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Operation rejected: Administrators cannot deactivate their own account directly",
+        )
+
+    try:
+        target_user.is_active = payload.is_active
+
+        # If target is DOCTOR, keep doctor_profile in sync
+        if target_user.role == "DOCTOR" and target_user.doctor_profile:
+            target_user.doctor_profile.is_active = payload.is_active
+
+        # If deactivating, revoke all active sessions for that user atomically
+        if not payload.is_active:
+            SecurityPrivacyService.revoke_all_sessions(db, target_user.id, auto_commit=False)
+
+        # Security audit event atomically in same transaction
+        event_type = "STAFF_ACTIVATION" if payload.is_active else "STAFF_DEACTIVATION"
+        ip = get_client_ip(request)
+        ua = get_client_user_agent(request)
+        SecurityPrivacyService.record_security_event(
+            db=db,
+            event_type=event_type,
+            user_id=target_user.id,
+            user_email=target_user.email,
+            clinic_id=target_user.clinic_id,
+            severity="INFO" if payload.is_active else "WARNING",
+            ip_address=ip,
+            user_agent=ua,
+            details={
+                "action_by_user_id": current_user.id,
+                "action_by_email": current_user.email,
+                "target_user_id": target_user.id,
+                "target_role": target_user.role,
+                "new_status": "ACTIVE" if payload.is_active else "INACTIVE",
+                "reason": payload.reason or "Admin status toggle",
+            },
+            auto_commit=False,
+        )
+
+        db.commit()
+        db.refresh(target_user)
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            "[Admin] Failed to update user status atomically for user_id=%s by admin_id=%s. Error: %s",
+            user_id,
+            getattr(current_user, "id", "unknown"),
+            type(e).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while updating user status. All changes have been rolled back.",
+        )
+
+    return ApiResponse(
+        success=True,
+        message=f"User account {'activated' if payload.is_active else 'deactivated'} successfully",
+        data=AdminUserItem(
+            id=target_user.id,
+            email=target_user.email,
+            full_name=target_user.full_name,
+            phone=target_user.phone,
+            role=target_user.role,
+            is_active=target_user.is_active,
+            created_at=target_user.created_at,
+            last_login_at=target_user.last_login_at,
+            failed_login_attempts=target_user.failed_login_attempts or 0,
+        ),
+    )
+
+
+@router.get("/security/login-activity", response_model=ApiResponse[LoginActivityListResponse], dependencies=[strict_admin_auth])
+def get_login_activity(
+    search: Optional[str] = Query(None),
+    event_type: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    AUTH_EVENT_TYPES = ["LOGIN_SUCCESS", "LOGIN_FAILED", "LOGOUT", "LOGOUT_ALL", "SUSPICIOUS_LOGIN_ATTEMPT"]
+    query = db.query(SecurityEvent)
+
+    if event_type and event_type.upper() != "ALL":
+        query = query.filter(SecurityEvent.event_type == event_type.upper())
+    else:
+        query = query.filter(SecurityEvent.event_type.in_(AUTH_EVENT_TYPES))
+
+    if search:
+        s = f"%{search.strip().lower()}%"
+        query = query.filter(
+            SecurityEvent.user_email.ilike(s) | SecurityEvent.ip_address.ilike(s)
+        )
+
+    sd = None
+    if start_date:
+        try:
+            clean_sd = start_date.strip().replace("Z", "+00:00")
+            sd = datetime.fromisoformat(clean_sd)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid start_date format '{start_date}'. Must be a valid ISO-8601 string (e.g. YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ).",
+            )
+        query = query.filter(SecurityEvent.created_at >= sd)
+
+    ed = None
+    if end_date:
+        try:
+            clean_ed = end_date.strip().replace("Z", "+00:00")
+            ed = datetime.fromisoformat(clean_ed)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid end_date format '{end_date}'. Must be a valid ISO-8601 string (e.g. YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ).",
+            )
+        query = query.filter(SecurityEvent.created_at <= ed)
+
+    if sd and ed and sd > ed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid date range: start_date '{start_date}' cannot be later than end_date '{end_date}'.",
+        )
+
+    total = query.count()
+    events = (
+        query.order_by(SecurityEvent.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    items = [
+        LoginActivityItem(
+            id=ev.id,
+            user_id=ev.user_id,
+            user_email=ev.user_email,
+            event_type=ev.event_type,
+            severity=ev.severity,
+            ip_address=ev.ip_address,
+            user_agent=ev.user_agent,
+            details=sanitize_security_details(ev.details),
+            created_at=ev.created_at,
+        )
+        for ev in events
+    ]
+
+    return ApiResponse(
+        success=True,
+        data=LoginActivityListResponse(
+            total=total,
+            page=page,
+            page_size=page_size,
+            items=items,
+        ),
+    )
 

@@ -4,6 +4,7 @@ import { adminService } from '@/services/admin'
 import { useNavigate } from 'react-router-dom'
 import {
   Users,
+  UserCheck,
   Stethoscope,
   Calendar,
   Truck,
@@ -43,6 +44,7 @@ export const AdminDashboard: React.FC = () => {
   const { metrics } = stats
 
   const summaryCards = [
+    { label: 'Total Registered Users', value: metrics.total_users ?? metrics.total_patients, icon: UserCheck, color: 'text-indigo-400 bg-indigo-950/50 border-indigo-800/50', link: '/admin/users' },
     { label: 'Total Patients', value: metrics.total_patients, icon: Users, color: 'text-sky-400 bg-sky-950/50 border-sky-800/50', link: '/admin/patients' },
     { label: "Today's Appointments", value: metrics.today_appointments, icon: Calendar, color: 'text-emerald-400 bg-emerald-950/50 border-emerald-800/50', link: '/admin/appointments' },
     { label: 'Upcoming Consultations', value: metrics.upcoming_appointments, icon: TrendingUp, color: 'text-blue-400 bg-blue-950/50 border-blue-800/50', link: '/admin/appointments' },
