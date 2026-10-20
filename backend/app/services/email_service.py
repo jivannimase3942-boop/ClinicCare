@@ -136,19 +136,22 @@ class EmailService:
         if not text:
             return ""
         clean = str(text)
-        if getattr(settings, "BREVO_API_KEY", None) and len(settings.BREVO_API_KEY) > 4:
-            clean = clean.replace(settings.BREVO_API_KEY, "[REDACTED_API_KEY]")
-        if getattr(settings, "RESEND_API_KEY", None) and len(settings.RESEND_API_KEY) > 4:
-            clean = clean.replace(settings.RESEND_API_KEY, "[REDACTED_API_KEY]")
-        if getattr(settings, "SMTP_PASSWORD", None) and len(settings.SMTP_PASSWORD) > 4:
-            clean = clean.replace(settings.SMTP_PASSWORD, "[REDACTED_PASSWORD]")
+        if getattr(settings, "BREVO_API_KEY", None) and len(str(settings.BREVO_API_KEY)) > 4:
+            clean = clean.replace(str(settings.BREVO_API_KEY), "[REDACTED_API_KEY]")
+        if getattr(settings, "RESEND_API_KEY", None) and len(str(settings.RESEND_API_KEY)) > 4:
+            clean = clean.replace(str(settings.RESEND_API_KEY), "[REDACTED_API_KEY]")
+        if getattr(settings, "SMTP_PASSWORD", None) and len(str(settings.SMTP_PASSWORD)) > 4:
+            clean = clean.replace(str(settings.SMTP_PASSWORD), "[REDACTED_PASSWORD]")
+        if getattr(settings, "JWT_SECRET", None) and len(str(settings.JWT_SECRET)) > 4:
+            clean = clean.replace(str(settings.JWT_SECRET), "[REDACTED_SECRET]")
         return clean
 
     @staticmethod
     def is_brevo_configured() -> bool:
-        """Checks if Brevo API key is provided."""
+        """Checks if Brevo API key and verified sender email are provided."""
         key = getattr(settings, "BREVO_API_KEY", None)
-        return bool(key and str(key).strip())
+        sender = getattr(settings, "BREVO_SENDER_EMAIL", None)
+        return bool(key and str(key).strip() and sender and str(sender).strip() and "@" in str(sender))
 
     @staticmethod
     def is_smtp_configured() -> bool:
@@ -171,31 +174,18 @@ class EmailService:
         Resolves the active email transport provider.
         Supports 'brevo' (HTTPS API, single sender verification, free tier),
         'resend' (HTTPS API), and 'smtp' (traditional SMTP).
+        When EMAIL_PROVIDER=brevo, it strictly uses Brevo HTTPS API and never falls back to Resend SMTP.
         """
         pref = (getattr(settings, "EMAIL_PROVIDER", None) or "brevo").strip().lower()
         if pref == "brevo":
-            if EmailService.is_brevo_configured():
-                return "brevo"
-            if EmailService.is_resend_configured():
-                return "resend"
-            if EmailService.is_smtp_configured():
-                return "smtp"
             return "brevo"
         if pref == "resend":
             if EmailService.is_resend_configured():
                 return "resend"
-            if EmailService.is_brevo_configured():
-                return "brevo"
             if EmailService.is_smtp_configured():
                 return "smtp"
             return "resend"
         if pref == "smtp":
-            if EmailService.is_smtp_configured():
-                return "smtp"
-            if EmailService.is_brevo_configured():
-                return "brevo"
-            if EmailService.is_resend_configured():
-                return "resend"
             return "smtp"
         return pref
 
@@ -215,36 +205,93 @@ class EmailService:
     def get_status() -> Dict[str, Any]:
         """
         Returns safe diagnostic status without exposing secret API keys or passwords.
-        Maintains backward compatibility with legacy SMTP keys while exposing provider-neutral diagnostics.
+        Maintains backward compatibility with legacy SMTP keys while accurately exposing
+        provider-neutral diagnostics.
         """
         configured = EmailService.is_configured()
         provider = EmailService.get_active_provider()
         use_ssl = bool(getattr(settings, "SMTP_USE_SSL", False) or getattr(settings, "SMTP_PORT", 587) == 465)
         use_tls = bool(getattr(settings, "SMTP_USE_TLS", True) and not use_ssl)
 
-        sender = (
-            getattr(settings, "BREVO_SENDER_EMAIL", None)
-            or getattr(settings, "RESEND_FROM_EMAIL", None)
-            or getattr(settings, "SMTP_SENDER", None)
-            or getattr(settings, "SMTP_USER", None)
-            or "alerts@cliniccarehospital.com"
-        )
+        brevo_conf = EmailService.is_brevo_configured()
+        resend_conf = EmailService.is_resend_configured()
+        smtp_conf = EmailService.is_smtp_configured()
 
-        transport = "https" if provider in ("brevo", "resend") else ("ssl" if use_ssl else ("tls" if use_tls else "plain"))
+        if provider == "brevo":
+            sender_email = (getattr(settings, "BREVO_SENDER_EMAIL", None) or "").strip()
+            sender_name = (getattr(settings, "BREVO_SENDER_NAME", None) or "ClinicCare Healthcare").strip()
+            transport = "https"
+            host = "api.brevo.com"
+            port = 443
+
+            missing = []
+            if not getattr(settings, "BREVO_API_KEY", None) or not str(settings.BREVO_API_KEY).strip():
+                missing.append("BREVO_API_KEY")
+            if not sender_email or "@" not in sender_email:
+                missing.append("BREVO_SENDER_EMAIL")
+
+            diagnostic = (
+                "Brevo HTTPS API is configured and ready"
+                if configured
+                else f"Brevo configuration incomplete: missing {', '.join(missing)}"
+            )
+            sender = sender_email if sender_email else (getattr(settings, "SMTP_SENDER", None) or "not_configured")
+
+        elif provider == "resend":
+            sender_email = (getattr(settings, "RESEND_FROM_EMAIL", None) or "").strip()
+            sender_name = (getattr(settings, "SMTP_SENDER_NAME", None) or "ClinicCare Healthcare").strip()
+            transport = "https"
+            host = "api.resend.com"
+            port = 443
+
+            missing = []
+            if not getattr(settings, "RESEND_API_KEY", None) or not str(settings.RESEND_API_KEY).strip():
+                missing.append("RESEND_API_KEY")
+
+            diagnostic = (
+                "Resend HTTPS API is configured and ready"
+                if configured
+                else f"Resend configuration incomplete: missing {', '.join(missing)}"
+            )
+            sender = sender_email if sender_email else "onboarding@resend.dev"
+
+        else:  # smtp
+            sender_email = (getattr(settings, "SMTP_SENDER", None) or getattr(settings, "SMTP_USER", None) or "").strip()
+            sender_name = (getattr(settings, "SMTP_SENDER_NAME", None) or "ClinicCare Healthcare").strip()
+            transport = "ssl" if use_ssl else ("tls" if use_tls else "plain")
+            host = getattr(settings, "SMTP_HOST", None) or None
+            port = getattr(settings, "SMTP_PORT", 587)
+
+            missing = []
+            if not getattr(settings, "SMTP_HOST", None):
+                missing.append("SMTP_HOST")
+            if not getattr(settings, "SMTP_USER", None):
+                missing.append("SMTP_USER")
+            if not getattr(settings, "SMTP_PASSWORD", None):
+                missing.append("SMTP_PASSWORD")
+
+            diagnostic = (
+                "SMTP relay is configured and ready"
+                if configured
+                else f"SMTP configuration incomplete: missing {', '.join(missing)}"
+            )
+            sender = sender_email if sender_email else "alerts@cliniccarehospital.com"
 
         return {
             "configured": configured,
             "provider": provider,
             "sender": sender,
+            "sender_name": sender_name,
             "transport": transport,
             "email_configured": configured,
-            "brevo_configured": EmailService.is_brevo_configured(),
-            "resend_configured": EmailService.is_resend_configured(),
-            "smtp_configured": EmailService.is_smtp_configured(),
-            "host": getattr(settings, "SMTP_HOST", None) or None,
-            "port": getattr(settings, "SMTP_PORT", 587),
+            "brevo_configured": brevo_conf,
+            "resend_configured": resend_conf,
+            "smtp_configured": smtp_conf,
+            "host": host,
+            "port": port,
             "use_tls": use_tls,
             "use_ssl": use_ssl,
+            "diagnostic": diagnostic,
         }
 
     @staticmethod
@@ -274,17 +321,34 @@ class EmailService:
         """
         normalized_recipient = to_email.strip().lower()
         if not EmailService.is_brevo_configured():
+            missing = []
+            if not getattr(settings, "BREVO_API_KEY", None) or not str(settings.BREVO_API_KEY).strip():
+                missing.append("BREVO_API_KEY")
+            sender_check = getattr(settings, "BREVO_SENDER_EMAIL", None)
+            if not sender_check or not str(sender_check).strip() or "@" not in str(sender_check):
+                missing.append("BREVO_SENDER_EMAIL")
+            missing_str = ", ".join(missing) if missing else "required credentials"
             if settings.is_production:
                 raise BrevoNotConfiguredError(
-                    "Brevo email service is not configured on this server. "
-                    "Required environment variable BREVO_API_KEY is missing."
+                    f"Brevo email service is not configured on this server. "
+                    f"Required environment variable(s) missing: {missing_str}."
                 )
-            print(f"[ClinicCare Email] Notice: Brevo API key unconfigured in {settings.ENVIRONMENT} mode. Skipping dispatch to {normalized_recipient}.")
+            print(f"[ClinicCare Email] Notice: Brevo unconfigured ({missing_str}) in {settings.ENVIRONMENT} mode. Skipping dispatch to {normalized_recipient}.")
             return False
 
-        sender_email = from_email or getattr(settings, "BREVO_SENDER_EMAIL", None) or getattr(settings, "SMTP_SENDER", "alerts@cliniccarehospital.com")
+        sender_email = (
+            from_email
+            or getattr(settings, "BREVO_SENDER_EMAIL", None)
+            or getattr(settings, "SMTP_SENDER", None)
+            or "alerts@cliniccarehospital.com"
+        )
         sender_email = str(sender_email).strip()
-        sender_name = from_name or getattr(settings, "BREVO_SENDER_NAME", "ClinicCare Healthcare")
+        sender_name = (
+            from_name
+            or getattr(settings, "BREVO_SENDER_NAME", None)
+            or "ClinicCare Healthcare"
+        )
+        sender_name = str(sender_name).strip() if sender_name else "ClinicCare Healthcare"
 
         api_url = getattr(settings, "BREVO_API_URL", "https://api.brevo.com/v3/smtp/email")
         timeout = float(getattr(settings, "BREVO_TIMEOUT", 10.0))

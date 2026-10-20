@@ -1427,6 +1427,111 @@ def test_34_google_auth_role_escalation_prevention(client, db_session):
         assert created_user.role == "PATIENT"
 
 
+def test_35_brevo_strict_provider_selection_no_smtp_fallback(client):
+    """35. EMAIL_PROVIDER=brevo strictly selects Brevo HTTPS API and never falls back to Resend SMTP."""
+    settings.EMAIL_PROVIDER = "brevo"
+    settings.BREVO_API_KEY = "xkeysib_provider_selection_key"
+    settings.BREVO_SENDER_EMAIL = "brevo_select@hospital.com"
+    settings.BREVO_SENDER_NAME = "ClinicCare Select"
+
+    # Set Resend and SMTP settings simultaneously to simulate Render's environment
+    settings.SMTP_HOST = "smtp.resend.com"
+    settings.SMTP_PORT = 587
+    settings.SMTP_USER = "resend"
+    settings.SMTP_PASSWORD = "re_password_123"
+    settings.RESEND_API_KEY = "re_resend_api_key"
+    settings.RESEND_FROM_EMAIL = "onboarding@resend.dev"
+
+    assert EmailService.get_active_provider() == "brevo"
+    assert EmailService.is_configured() is True
+
+    status_data = EmailService.get_status()
+    assert status_data["provider"] == "brevo"
+    assert status_data["configured"] is True
+    assert status_data["sender"] == "brevo_select@hospital.com"
+    assert status_data["sender_name"] == "ClinicCare Select"
+    assert status_data["transport"] == "https"
+    assert status_data["host"] == "api.brevo.com"
+    assert status_data["port"] == 443
+    assert status_data["diagnostic"] == "Brevo HTTPS API is configured and ready"
+
+    resp = client.get("/api/auth/email-status")
+    assert resp.status_code == 200
+    res_data = resp.json()["data"]
+    assert res_data["provider"] == "brevo"
+    assert res_data["sender"] == "brevo_select@hospital.com"
+    assert res_data["host"] == "api.brevo.com"
+    assert res_data["port"] == 443
+
+
+def test_36_brevo_missing_configuration_produces_safe_diagnostics(client, db_session):
+    """36. Missing or incomplete Brevo configuration produces safe diagnostics without exposing secrets."""
+    settings.ENVIRONMENT = "production"
+    settings.EMAIL_PROVIDER = "brevo"
+    settings.BREVO_API_KEY = None
+    settings.BREVO_SENDER_EMAIL = None
+
+    status_data = EmailService.get_status()
+    assert status_data["provider"] == "brevo"
+    assert status_data["configured"] is False
+    assert status_data["brevo_configured"] is False
+    assert "BREVO_API_KEY" in status_data["diagnostic"]
+    assert "BREVO_SENDER_EMAIL" in status_data["diagnostic"]
+
+    # When attempting to send registration OTP in production without configuration
+    resp = client.post(
+        "/api/auth/register/send-otp",
+        json={"email": "unconfigured_brevo_test@hospital.com", "full_name": "Test User"},
+    )
+    assert resp.status_code == 503
+    detail = resp.json()["detail"]
+    assert "Brevo email service is not configured" in detail
+    assert "BREVO_API_KEY" in detail
+
+
+def test_37_brevo_custom_sender_name_and_email_in_payload(client, db_session):
+    """37. BREVO_SENDER_NAME and BREVO_SENDER_EMAIL are propagated to Brevo API dispatch payload."""
+    test_email = "brevo_sender_payload@hospital.com"
+    db_session.query(EmailVerification).filter(EmailVerification.email == test_email).delete()
+    db_session.commit()
+
+    settings.ENVIRONMENT = "production"
+    settings.EMAIL_PROVIDER = "brevo"
+    settings.BREVO_API_KEY = "xkeysib_custom_sender_key_999"
+    settings.BREVO_SENDER_EMAIL = "doctor_care@cliniccarehospital.com"
+    settings.BREVO_SENDER_NAME = "ClinicCare Specialist Team"
+
+    mock_resp = MagicMock(status_code=201)
+    mock_resp.json.return_value = {"messageId": "<brevo-test-msg-id-123@mailin.fr>"}
+
+    with patch.object(EmailService, "_execute_brevo_post", return_value=mock_resp) as mock_post:
+        resp = client.post(
+            "/api/auth/register/send-otp",
+            json={"email": test_email, "full_name": "Payload Patient"},
+        )
+        assert resp.status_code == 200
+        mock_post.assert_called_once()
+        _, kwargs = mock_post.call_args
+        payload = kwargs["payload"]
+        assert payload["sender"]["name"] == "ClinicCare Specialist Team"
+        assert payload["sender"]["email"] == "doctor_care@cliniccarehospital.com"
+        assert payload["to"][0]["email"] == test_email
+
+
+def test_38_health_endpoint_reports_brevo_status(client):
+    """38. /health endpoint accurately reflects brevo_configured and email_provider."""
+    settings.EMAIL_PROVIDER = "brevo"
+    settings.BREVO_API_KEY = "xkeysib_health_check_key"
+    settings.BREVO_SENDER_EMAIL = "health@cliniccarehospital.com"
+
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["brevo_configured"] is True
+    assert data["email_configured"] is True
+    assert data["email_provider"] == "brevo"
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main(["-v", "-s", __file__]))
