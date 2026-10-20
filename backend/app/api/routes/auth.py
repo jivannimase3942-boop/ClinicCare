@@ -188,12 +188,52 @@ def login(login_data: UserLogin, request: Request, db: Session = Depends(get_db)
     ip = get_client_ip(request)
     ua = get_client_user_agent(request)
     norm_email = login_data.email.strip().lower()
-
     cand_user = db.query(User).filter(User.email == norm_email).first()
-    if not cand_user or not verify_password(login_data.password, cand_user.password_hash):
-        if cand_user:
-            cand_user.failed_login_attempts = (cand_user.failed_login_attempts or 0) + 1
-            db.commit()
+
+    try:
+        user = auth_service.authenticate_user(db, login_data)
+        if not user:
+            SecurityPrivacyService.record_security_event(
+                db=db,
+                event_type="LOGIN_FAILED",
+                user_id=cand_user.id if cand_user else None,
+                user_email=norm_email,
+                clinic_id=cand_user.clinic_id if cand_user else None,
+                severity="WARNING",
+                ip_address=ip,
+                user_agent=ua,
+                details={"method": "password", "outcome": "failed", "reason": "invalid_credentials"}
+            )
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+
+        token = auth_service.create_token_for_user(user, ip_address=ip, user_agent=ua, db=db)
+        SecurityPrivacyService.record_security_event(
+            db=db,
+            event_type="LOGIN_SUCCESS",
+            user_id=user.id,
+            user_email=user.email,
+            clinic_id=user.clinic_id,
+            severity="INFO",
+            ip_address=ip,
+            user_agent=ua,
+            details={"method": "password", "outcome": "success"}
+        )
+        user_resp = auth_service.format_user_response(db, user)
+        return ApiResponse(
+            success=True,
+            message="Login successful",
+            data=TokenResponse(access_token=token, token_type="bearer", user=user_resp)
+        )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        err_msg = str(e)
+        if "tenant" in err_msg.lower() or "branch" in err_msg.lower():
+            reason = "tenant_or_branch_inactive"
+        elif "disabled" in err_msg.lower():
+            reason = "account_disabled"
+        else:
+            reason = "invalid_credentials"
         SecurityPrivacyService.record_security_event(
             db=db,
             event_type="LOGIN_FAILED",
@@ -203,47 +243,9 @@ def login(login_data: UserLogin, request: Request, db: Session = Depends(get_db)
             severity="WARNING",
             ip_address=ip,
             user_agent=ua,
-            details={"method": "password", "outcome": "failed", "reason": "invalid_credentials"}
+            details={"method": "password", "outcome": "failed", "reason": reason}
         )
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
-
-    if not cand_user.is_active:
-        SecurityPrivacyService.record_security_event(
-            db=db,
-            event_type="LOGIN_FAILED",
-            user_id=cand_user.id,
-            user_email=norm_email,
-            clinic_id=cand_user.clinic_id,
-            severity="WARNING",
-            ip_address=ip,
-            user_agent=ua,
-            details={"method": "password", "outcome": "failed", "reason": "account_disabled"}
-        )
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is disabled")
-
-    user = cand_user
-    user.last_login_at = datetime.now(timezone.utc)
-    user.failed_login_attempts = 0
-    db.commit()
-
-    token = auth_service.create_token_for_user(user, ip_address=ip, user_agent=ua, db=db)
-    SecurityPrivacyService.record_security_event(
-        db=db,
-        event_type="LOGIN_SUCCESS",
-        user_id=user.id,
-        user_email=user.email,
-        clinic_id=user.clinic_id,
-        severity="INFO",
-        ip_address=ip,
-        user_agent=ua,
-        details={"method": "password", "outcome": "success"}
-    )
-    user_resp = auth_service.format_user_response(db, user)
-    return ApiResponse(
-        success=True,
-        message="Login successful",
-        data=TokenResponse(access_token=token, token_type="bearer", user=user_resp)
-    )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=err_msg)
 
 
 @router.post("/login/send-otp", response_model=ApiResponse[dict])

@@ -1,3 +1,5 @@
+import re
+import json
 from datetime import date, datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, Request, status
@@ -389,6 +391,83 @@ def list_admin_users(
     )
 
 
+# Allowed detail keys for security event inspection
+ALLOWED_SECURITY_DETAIL_KEYS = {
+    "method",
+    "outcome",
+    "reason",
+    "action_by_user_id",
+    "action_by_email",
+    "target_user_id",
+    "target_role",
+    "new_status",
+    "status",
+    "revoked_count",
+    "device",
+    "browser",
+    "os",
+    "platform",
+    "purpose",
+    "attempt_number",
+}
+
+# Regex patterns for sensitive credentials that must never be exposed
+_JWT_PATTERN = re.compile(r"eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]+")
+_BEARER_PATTERN = re.compile(r"Bearer\s+[a-zA-Z0-9_\-\.]+", re.IGNORECASE)
+_API_KEY_PATTERN = re.compile(r"\b(?:sk|pk|api|key)_[a-zA-Z0-9]{16,}\b", re.IGNORECASE)
+_PASSWORD_PATTERN = re.compile(r"(?i)(password|secret|hash|otp|token|ssn|mrn|diagnosis|prescription)[\s\"':=]+([^\s,}\"]+)")
+_SENSITIVE_KEY_NAMES = {
+    "password", "password_hash", "new_password", "old_password",
+    "secret", "token", "access_token", "refresh_token", "id_token",
+    "credential", "credentials", "otp", "otp_code", "code", "pin",
+    "api_key", "key", "authorization", "cookie", "cookies",
+    "ssn", "mrn", "diagnosis", "prescription", "medical_record", "clinical_notes"
+}
+
+
+def sanitize_security_details(raw_details: Optional[str]) -> Optional[str]:
+    """
+    Explicitly allowlists and redacts security event details before returning to admin client.
+    Guarantees that passwords, hashes, OTPs, JWTs, session tokens, API keys,
+    and sensitive clinical/personal information cannot leak.
+    """
+    if not raw_details:
+        return None
+
+    # Check if raw_details is a JSON string
+    try:
+        parsed = json.loads(raw_details)
+        if isinstance(parsed, dict):
+            clean_dict = {}
+            for k, v in parsed.items():
+                k_lower = str(k).strip().lower()
+                # 1. Reject any sensitive key name
+                if k_lower in _SENSITIVE_KEY_NAMES or any(s in k_lower for s in ("password", "token", "secret", "hash", "otp", "diagno", "prescrip")):
+                    continue
+                # 2. Key must be in explicit allowlist
+                if k_lower in ALLOWED_SECURITY_DETAIL_KEYS:
+                    # Sanitize value if string
+                    if isinstance(v, str):
+                        v_clean = _JWT_PATTERN.sub("[REDACTED_JWT]", v)
+                        v_clean = _BEARER_PATTERN.sub("Bearer [REDACTED]", v_clean)
+                        v_clean = _API_KEY_PATTERN.sub("[REDACTED_KEY]", v_clean)
+                        clean_dict[k_lower] = v_clean
+                    else:
+                        clean_dict[k_lower] = v
+            return json.dumps(clean_dict)
+        elif isinstance(parsed, list):
+            return json.dumps([])
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # If raw plain string, scrub any sensitive tokens or patterns
+    scrubbed = _JWT_PATTERN.sub("[REDACTED_JWT]", str(raw_details))
+    scrubbed = _BEARER_PATTERN.sub("Bearer [REDACTED]", scrubbed)
+    scrubbed = _API_KEY_PATTERN.sub("[REDACTED_KEY]", scrubbed)
+    scrubbed = _PASSWORD_PATTERN.sub(r"\1: [REDACTED]", scrubbed)
+    return scrubbed
+
+
 @router.patch("/users/{user_id}/status", response_model=ApiResponse[AdminUserItem], dependencies=[strict_admin_auth])
 def update_user_status(
     user_id: str,
@@ -420,41 +499,49 @@ def update_user_status(
             detail="Operation rejected: Administrators cannot deactivate their own account directly",
         )
 
-    target_user.is_active = payload.is_active
+    try:
+        target_user.is_active = payload.is_active
 
-    # If target is DOCTOR, keep doctor_profile in sync
-    if target_user.role == "DOCTOR" and target_user.doctor_profile:
-        target_user.doctor_profile.is_active = payload.is_active
+        # If target is DOCTOR, keep doctor_profile in sync
+        if target_user.role == "DOCTOR" and target_user.doctor_profile:
+            target_user.doctor_profile.is_active = payload.is_active
 
-    # If deactivating, revoke all active sessions for that user
-    if not payload.is_active:
-        SecurityPrivacyService.revoke_all_sessions(db, target_user.id)
+        # If deactivating, revoke all active sessions for that user atomically
+        if not payload.is_active:
+            SecurityPrivacyService.revoke_all_sessions(db, target_user.id, auto_commit=False)
 
-    db.commit()
-    db.refresh(target_user)
+        # Security audit event atomically in same transaction
+        event_type = "STAFF_ACTIVATION" if payload.is_active else "STAFF_DEACTIVATION"
+        ip = get_client_ip(request)
+        ua = get_client_user_agent(request)
+        SecurityPrivacyService.record_security_event(
+            db=db,
+            event_type=event_type,
+            user_id=target_user.id,
+            user_email=target_user.email,
+            clinic_id=target_user.clinic_id,
+            severity="INFO" if payload.is_active else "WARNING",
+            ip_address=ip,
+            user_agent=ua,
+            details={
+                "action_by_user_id": current_user.id,
+                "action_by_email": current_user.email,
+                "target_user_id": target_user.id,
+                "target_role": target_user.role,
+                "new_status": "ACTIVE" if payload.is_active else "INACTIVE",
+                "reason": payload.reason or "Admin status toggle",
+            },
+            auto_commit=False,
+        )
 
-    # Security audit event
-    event_type = "STAFF_ACTIVATION" if payload.is_active else "STAFF_DEACTIVATION"
-    ip = get_client_ip(request)
-    ua = get_client_user_agent(request)
-    SecurityPrivacyService.record_security_event(
-        db=db,
-        event_type=event_type,
-        user_id=target_user.id,
-        user_email=target_user.email,
-        clinic_id=target_user.clinic_id,
-        severity="INFO" if payload.is_active else "WARNING",
-        ip_address=ip,
-        user_agent=ua,
-        details={
-            "action_by_user_id": current_user.id,
-            "action_by_email": current_user.email,
-            "target_user_id": target_user.id,
-            "target_role": target_user.role,
-            "new_status": "ACTIVE" if payload.is_active else "INACTIVE",
-            "reason": payload.reason or "Admin status toggle",
-        },
-    )
+        db.commit()
+        db.refresh(target_user)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Atomic status update failed: {str(e)}",
+        )
 
     return ApiResponse(
         success=True,
@@ -497,19 +584,35 @@ def get_login_activity(
             SecurityEvent.user_email.ilike(s) | SecurityEvent.ip_address.ilike(s)
         )
 
+    sd = None
     if start_date:
         try:
-            sd = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
-            query = query.filter(SecurityEvent.created_at >= sd)
+            clean_sd = start_date.strip().replace("Z", "+00:00")
+            sd = datetime.fromisoformat(clean_sd)
         except Exception:
-            pass
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid start_date format '{start_date}'. Must be a valid ISO-8601 string (e.g. YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ).",
+            )
+        query = query.filter(SecurityEvent.created_at >= sd)
 
+    ed = None
     if end_date:
         try:
-            ed = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-            query = query.filter(SecurityEvent.created_at <= ed)
+            clean_ed = end_date.strip().replace("Z", "+00:00")
+            ed = datetime.fromisoformat(clean_ed)
         except Exception:
-            pass
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid end_date format '{end_date}'. Must be a valid ISO-8601 string (e.g. YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ).",
+            )
+        query = query.filter(SecurityEvent.created_at <= ed)
+
+    if sd and ed and sd > ed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid date range: start_date '{start_date}' cannot be later than end_date '{end_date}'.",
+        )
 
     total = query.count()
     events = (
@@ -528,7 +631,7 @@ def get_login_activity(
             severity=ev.severity,
             ip_address=ev.ip_address,
             user_agent=ev.user_agent,
-            details=ev.details,
+            details=sanitize_security_details(ev.details),
             created_at=ev.created_at,
         )
         for ev in events

@@ -87,7 +87,7 @@ class SecurityPrivacyService:
         return False
 
     @staticmethod
-    def revoke_all_sessions(db: Session, user_id: str, except_jti: Optional[str] = None) -> int:
+    def revoke_all_sessions(db: Session, user_id: str, except_jti: Optional[str] = None, auto_commit: bool = True) -> int:
         now = datetime.now(timezone.utc)
         query = db.query(UserSession).filter(
             UserSession.user_id == user_id,
@@ -101,7 +101,8 @@ class SecurityPrivacyService:
         for s in sessions:
             s.is_active = False
             s.revoked_at = now
-        db.commit()
+        if auto_commit:
+            db.commit()
         return count
 
     @staticmethod
@@ -133,6 +134,7 @@ class SecurityPrivacyService:
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
         details: Optional[Any] = None,
+        auto_commit: bool = True,
     ) -> SecurityEvent:
         details_str = json.dumps(details) if isinstance(details, (dict, list)) else (str(details) if details else None)
         event = SecurityEvent(
@@ -147,8 +149,11 @@ class SecurityPrivacyService:
             details=details_str,
         )
         db.add(event)
-        db.commit()
-        db.refresh(event)
+        if auto_commit:
+            db.commit()
+            db.refresh(event)
+        else:
+            db.flush()
 
         # Mirror into central audit log for Unified Compliance
         audit_service.log_action(
@@ -162,6 +167,7 @@ class SecurityPrivacyService:
             details=details,
             ip_address=ip_address,
             user_agent=user_agent,
+            auto_commit=auto_commit,
         )
         return event
 

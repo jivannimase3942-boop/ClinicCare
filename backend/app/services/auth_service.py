@@ -509,13 +509,32 @@ class AuthService:
 
     @staticmethod
     def authenticate_user(db: Session, login_data: UserLogin) -> Optional[User]:
-        user = db.query(User).filter(User.email == login_data.email.lower()).first()
-        if not user:
+        normalized_email = login_data.email.strip().lower()
+        user = db.query(User).filter(User.email == normalized_email).first()
+        if not user or not verify_password(login_data.password, user.password_hash):
+            if user:
+                user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+                db.commit()
             return None
-        if not verify_password(login_data.password, user.password_hash):
-            return None
+
         if not user.is_active:
             raise ValueError("User account is disabled")
+
+        if user.clinic_id:
+            from app.models.clinic import Clinic
+            clinic = db.query(Clinic).filter(Clinic.id == user.clinic_id).first()
+            if clinic and not clinic.is_active:
+                raise ValueError("Clinic tenant account is suspended or disabled")
+
+        if user.branch_id:
+            from app.models.organization import Branch
+            branch = db.query(Branch).filter(Branch.id == user.branch_id).first()
+            if branch and not branch.is_active:
+                raise ValueError("Assigned branch account is inactive")
+
+        user.failed_login_attempts = 0
+        user.last_login_at = datetime.now(timezone.utc)
+        db.commit()
         return user
 
     @staticmethod

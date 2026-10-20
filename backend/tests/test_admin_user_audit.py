@@ -1,8 +1,11 @@
+import json
 import pytest
 from datetime import datetime, timezone
 from unittest.mock import patch
 from app.models.user import User, EmailVerification
 from app.models.security_privacy import SecurityEvent, UserSession
+from app.models.clinic import Clinic
+from app.models.organization import Branch, Organization
 from app.core.security import get_password_hash
 
 
@@ -307,3 +310,237 @@ def test_admin_login_activity_endpoint(client, seed_test_data, db_session):
     assert filtered_resp.status_code == 200
     for item in filtered_resp.json()["data"]["items"]:
         assert item["event_type"] == "LOGIN_SUCCESS"
+
+
+def test_login_activity_date_validation_strict(client, seed_test_data):
+    admin_login = client.post("/api/auth/login", json={"email": "admin@hospital.com", "password": "Admin@123"})
+    admin_token = admin_login.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # 1. Invalid start_date returns 422
+    resp_bad_start = client.get("/api/admin/security/login-activity", params={"start_date": "invalid-start-date"}, headers=headers)
+    assert resp_bad_start.status_code == 422
+    assert "start_date" in resp_bad_start.json()["detail"].lower()
+
+    # 2. Invalid end_date returns 422
+    resp_bad_end = client.get("/api/admin/security/login-activity", params={"end_date": "not-a-valid-date"}, headers=headers)
+    assert resp_bad_end.status_code == 422
+    assert "end_date" in resp_bad_end.json()["detail"].lower()
+
+    # 3. start_date > end_date returns 422
+    resp_inverted = client.get(
+        "/api/admin/security/login-activity",
+        params={"start_date": "2026-12-01", "end_date": "2026-01-01"},
+        headers=headers
+    )
+    assert resp_inverted.status_code == 422
+    assert "start_date" in resp_inverted.json()["detail"].lower()
+
+    # 4. Valid ISO-8601 dates return 200
+    resp_valid = client.get(
+        "/api/admin/security/login-activity",
+        params={"start_date": "2026-01-01T00:00:00Z", "end_date": "2026-12-31T23:59:59Z"},
+        headers=headers
+    )
+    assert resp_valid.status_code == 200
+    assert "items" in resp_valid.json()["data"]
+
+
+def test_login_activity_details_redaction_and_allowlisting(client, seed_test_data, db_session):
+    admin_login = client.post("/api/auth/login", json={"email": "admin@hospital.com", "password": "Admin@123"})
+    admin_token = admin_login.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # Seed an event containing sensitive keys (password, otp, token, api_key, medical info)
+    sensitive_details = {
+        "password": "RawPlaintextPassword999!",
+        "password_hash": "$2b$12$e8q4V3qW4q0s2p3j4k5l6m7n8o9p0q1r2s3t4u5v6w7x8y9z0a1b2",
+        "otp": "839102",
+        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.doNotLeakThisSignature",
+        "api_key": "mock_test_api_key_string_val_99887766",
+        "diagnosis": "Acute confidential medical diagnosis",
+        "prescription": "Controlled substance 50mg daily",
+        "method": "password",
+        "outcome": "failed",
+        "reason": "invalid_credentials",
+    }
+    raw_event = SecurityEvent(
+        user_email="patient@hospital.com",
+        event_type="LOGIN_FAILED",
+        severity="WARNING",
+        ip_address="198.51.100.22",
+        details=json.dumps(sensitive_details),
+    )
+    db_session.add(raw_event)
+    db_session.commit()
+
+    resp = client.get("/api/admin/security/login-activity", headers=headers)
+    assert resp.status_code == 200
+    resp_text = resp.text
+
+    # Strict check: none of the sensitive values must appear in the HTTP response body
+    assert "RawPlaintextPassword999!" not in resp_text
+    assert "839102" not in resp_text
+    assert "doNotLeakThisSignature" not in resp_text
+    assert "mock_test_api_key_string_val_99887766" not in resp_text
+    assert "Acute confidential medical diagnosis" not in resp_text
+    assert "Controlled substance" not in resp_text
+
+    # Verify that the parsed event item only contains allowlisted keys
+    found_event = None
+    for item in resp.json()["data"]["items"]:
+        if item["id"] == raw_event.id:
+            found_event = item
+            break
+    assert found_event is not None
+    parsed_details = json.loads(found_event["details"])
+    assert "password" not in parsed_details
+    assert "otp" not in parsed_details
+    assert "access_token" not in parsed_details
+    assert "api_key" not in parsed_details
+    assert "diagnosis" not in parsed_details
+    assert "prescription" not in parsed_details
+    # Safe allowlisted keys must be preserved
+    assert parsed_details.get("method") == "password"
+    assert parsed_details.get("outcome") == "failed"
+    assert parsed_details.get("reason") == "invalid_credentials"
+
+
+def test_admin_update_user_status_atomic_rollback(client, seed_test_data, db_session):
+    admin_login = client.post("/api/auth/login", json={"email": "admin@hospital.com", "password": "Admin@123"})
+    admin_token = admin_login.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # Create a user with an active session
+    user = User(
+        email="atomic_test_user@hospital.com",
+        password_hash=get_password_hash("TestPass123!"),
+        full_name="Atomic Test User",
+        role="PATIENT",
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    from datetime import timedelta
+    session_record = UserSession(
+        user_id=user.id,
+        token_jti="atomic-test-jti-1234",
+        is_active=True,
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    db_session.add(session_record)
+    db_session.commit()
+
+    # Simulate unexpected failure during security event generation
+    with patch(
+        "app.services.security_privacy_service.SecurityPrivacyService.record_security_event",
+        side_effect=RuntimeError("Simulated audit write failure"),
+    ):
+        patch_resp = client.patch(
+            f"/api/admin/users/{user.id}/status",
+            json={"is_active": False, "reason": "Test atomic rollback"},
+            headers=headers,
+        )
+        assert patch_resp.status_code == 500
+        assert "Atomic status update failed" in patch_resp.json()["detail"]
+
+    # In database: user.is_active must still be True due to complete rollback!
+    db_session.expire_all()
+    reloaded_user = db_session.query(User).filter(User.id == user.id).first()
+    assert reloaded_user.is_active is True
+
+    # In database: user session must still be active!
+    reloaded_sess = db_session.query(UserSession).filter(UserSession.token_jti == "atomic-test-jti-1234").first()
+    assert reloaded_sess.is_active is True
+
+    # In database: no STAFF_DEACTIVATION event was committed for this user
+    evt = db_session.query(SecurityEvent).filter(
+        SecurityEvent.user_id == user.id,
+        SecurityEvent.event_type == "STAFF_DEACTIVATION"
+    ).first()
+    assert evt is None
+
+
+def test_login_rejected_when_clinic_tenant_is_inactive(client, seed_test_data, db_session):
+    # 1. Create a suspended clinic
+    suspended_clinic = Clinic(
+        name="Suspended Clinic",
+        slug="suspended-clinic",
+        phone="+91 80 0000 0000",
+        is_active=False,  # Inactive tenant
+    )
+    db_session.add(suspended_clinic)
+    db_session.commit()
+
+    # 2. Create user linked to suspended clinic
+    user = User(
+        email="doctor_suspended@hospital.com",
+        password_hash=get_password_hash("DocPass123!"),
+        full_name="Suspended Doctor",
+        role="DOCTOR",
+        clinic_id=suspended_clinic.id,
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    # 3. Attempt login
+    login_resp = client.post(
+        "/api/auth/login",
+        json={"email": "doctor_suspended@hospital.com", "password": "DocPass123!"}
+    )
+    assert login_resp.status_code == 403
+    assert "suspended or disabled" in login_resp.json()["detail"].lower()
+
+    # 4. Verify LOGIN_FAILED audit event was recorded with tenant reason
+    event = db_session.query(SecurityEvent).filter(
+        SecurityEvent.user_email == "doctor_suspended@hospital.com",
+        SecurityEvent.event_type == "LOGIN_FAILED",
+    ).first()
+    assert event is not None
+    assert "tenant_or_branch_inactive" in event.details
+
+
+def test_login_rejected_when_branch_is_inactive(client, seed_test_data, db_session):
+    # 1. Create parent organization and an inactive branch
+    org = Organization(name="Closed Org", code="ORG-CLOSED")
+    db_session.add(org)
+    db_session.commit()
+
+    inactive_branch = Branch(
+        organization_id=org.id,
+        name="Closed Branch",
+        code="BR-CLOSED",
+        is_active=False,  # Inactive branch
+    )
+    db_session.add(inactive_branch)
+    db_session.commit()
+
+    # 2. Create user linked to inactive branch
+    user = User(
+        email="staff_closed_branch@hospital.com",
+        password_hash=get_password_hash("StaffPass123!"),
+        full_name="Closed Branch Staff",
+        role="FRONT_DESK",
+        branch_id=inactive_branch.id,
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    # 3. Attempt login
+    login_resp = client.post(
+        "/api/auth/login",
+        json={"email": "staff_closed_branch@hospital.com", "password": "StaffPass123!"}
+    )
+    assert login_resp.status_code == 403
+    assert "branch account is inactive" in login_resp.json()["detail"].lower()
+
+    # 4. Verify LOGIN_FAILED audit event recorded
+    event = db_session.query(SecurityEvent).filter(
+        SecurityEvent.user_email == "staff_closed_branch@hospital.com",
+        SecurityEvent.event_type == "LOGIN_FAILED",
+    ).first()
+    assert event is not None
+    assert "tenant_or_branch_inactive" in event.details
