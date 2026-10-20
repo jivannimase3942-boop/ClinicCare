@@ -27,6 +27,8 @@ class User(Base):
     organization_id = Column(String(36), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True)
     branch_id = Column(String(36), ForeignKey("branches.id", ondelete="SET NULL", use_alter=True), nullable=True, index=True)
     is_active = Column(Boolean, default=True, nullable=False)
+    last_login_at = Column(DateTime, nullable=True, index=True)
+    failed_login_attempts = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 

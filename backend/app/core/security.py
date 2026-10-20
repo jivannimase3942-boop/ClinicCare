@@ -58,3 +58,36 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     except JWTError:
         return None
 
+
+def get_client_ip(request: Any) -> str:
+    """
+    Extracts the client IP from request headers or socket address safely.
+    Checks CF-Connecting-IP, X-Forwarded-For, X-Real-IP, and client host.
+    """
+    if not request:
+        return "127.0.0.1"
+    headers = getattr(request, "headers", {})
+    cf_ip = headers.get("CF-Connecting-IP")
+    if cf_ip:
+        return cf_ip.strip()
+    forwarded = headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    real_ip = headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
+    client = getattr(request, "client", None)
+    if client and getattr(client, "host", None):
+        return client.host
+    return "127.0.0.1"
+
+
+def get_client_user_agent(request: Any) -> Optional[str]:
+    """
+    Extracts the User-Agent safely from request headers, truncated to 255 chars.
+    """
+    if not request:
+        return None
+    headers = getattr(request, "headers", {})
+    ua = headers.get("User-Agent") or headers.get("user-agent")
+    return ua[:255] if ua else None

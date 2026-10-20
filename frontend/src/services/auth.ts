@@ -118,4 +118,12 @@ export const authService = {
       new_password: newPassword,
     })
   },
+
+  logout: async (): Promise<void> => {
+    try {
+      await api.post('/auth/logout')
+    } catch {
+      // Safe fallback if network error or already invalidated
+    }
+  },
 }

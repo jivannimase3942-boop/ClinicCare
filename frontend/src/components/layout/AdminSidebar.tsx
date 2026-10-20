@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext'
 import {
   LayoutDashboard,
   Users,
+  UserCheck,
   Stethoscope,
   Building2,
   CalendarDays,
@@ -33,6 +34,7 @@ export const AdminSidebar: React.FC = () => {
 
   const links = [
     { to: '/admin/dashboard', label: 'Dashboard Overview', icon: LayoutDashboard },
+    { to: '/admin/users', label: 'User Directory & Security', icon: UserCheck, badge: 'New' },
     { to: '/admin/branches', label: 'Multi-Branch & Org', icon: GitBranch, badge: 'Phase 4' },
     { to: '/admin/clinic-profile', label: 'Clinic Settings & Profile', icon: Hospital },
     { to: '/admin/revenue', label: 'Revenue & Billing', icon: IndianRupee, badge: 'Finance' },

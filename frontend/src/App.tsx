@@ -58,6 +58,7 @@ import { AdminReminders } from '@/pages/admin/AdminReminders'
 import { AdminAuditLogs } from '@/pages/admin/AdminAuditLogs'
 import { AdminClinicProfile } from '@/pages/admin/AdminClinicProfile'
 import { AdminOrganizationsBranches } from '@/pages/admin/AdminOrganizationsBranches'
+import { AdminUsers } from '@/pages/admin/AdminUsers'
 
 // Doctor Pages
 import { DoctorDashboard } from '@/pages/doctor/DoctorDashboard'
@@ -185,6 +186,7 @@ export const App: React.FC = () => {
               >
                 <Route index element={<Navigate to="/admin/dashboard" replace />} />
                 <Route path="dashboard" element={<AdminDashboard />} />
+                <Route path="users" element={<AdminUsers />} />
                 <Route path="branches" element={<AdminOrganizationsBranches />} />
                 <Route path="revenue" element={<AdminRevenue />} />
                 <Route path="pharmacy" element={<AdminPharmacyPage />} />

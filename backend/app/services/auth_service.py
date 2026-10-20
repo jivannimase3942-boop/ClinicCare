@@ -523,6 +523,7 @@ class AuthService:
         user: User,
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
+        db: Optional[Session] = None,
     ) -> str:
         import uuid
         token_jti = str(uuid.uuid4())
@@ -538,20 +539,24 @@ class AuthService:
         # Track active session in database
         try:
             from app.models.security_privacy import UserSession
-            from app.db.session import SessionLocal
-            with SessionLocal() as session_db:
-                expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-                new_session = UserSession(
-                    user_id=user.id,
-                    token_jti=token_jti,
-                    ip_address=ip_address,
-                    user_agent=user_agent[:255] if user_agent else None,
-                    is_active=True,
-                    last_activity_at=datetime.now(timezone.utc),
-                    expires_at=expires_at,
-                )
-                session_db.add(new_session)
-                session_db.commit()
+            expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+            new_session = UserSession(
+                user_id=user.id,
+                token_jti=token_jti,
+                ip_address=ip_address,
+                user_agent=user_agent[:255] if user_agent else None,
+                is_active=True,
+                last_activity_at=datetime.now(timezone.utc),
+                expires_at=expires_at,
+            )
+            if db is not None:
+                db.add(new_session)
+                db.commit()
+            else:
+                from app.db.session import SessionLocal
+                with SessionLocal() as session_db:
+                    session_db.add(new_session)
+                    session_db.commit()
         except Exception as e:
             print(f"[AuthService] Note tracking user session: {e}")
 
@@ -594,6 +599,7 @@ class AuthService:
             role=user.role,
             is_active=user.is_active,
             created_at=user.created_at,
+            last_login_at=user.last_login_at,
             patient_profile=patient_resp,
             doctor_profile=doctor_resp,
             clinic_id=user.clinic_id,

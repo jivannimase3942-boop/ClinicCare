@@ -1,12 +1,13 @@
 from datetime import date, datetime, timezone
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Query, Body, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, Request, status
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.session import get_db
 from app.schemas.common import ApiResponse
 from app.api.dependencies import require_roles, get_current_user
 from app.models.user import User, Patient, Doctor, Department
+from app.models.security_privacy import SecurityEvent
 from app.models.escalation import Escalation
 from app.models.ambulance import Ambulance, AmbulanceRequest
 from app.models.blood import BloodBank, BloodInventory
@@ -29,7 +30,18 @@ from app.services.reminder_service import reminder_service
 from app.services.emergency_service import emergency_service
 from app.services.audit_service import audit_service
 from app.services.clinic_service import clinic_service
-from app.schemas.admin import AdminDashboardStats, ErrorLogResponse, ErrorLogCreate
+from app.services.security_privacy_service import SecurityPrivacyService
+from app.core.security import get_client_ip, get_client_user_agent
+from app.schemas.admin import (
+    AdminDashboardStats,
+    ErrorLogResponse,
+    ErrorLogCreate,
+    AdminUserItem,
+    AdminUserListResponse,
+    AdminUserStatusUpdate,
+    LoginActivityItem,
+    LoginActivityListResponse,
+)
 from app.schemas.doctor import DoctorResponse, DepartmentResponse, DepartmentCreate, DoctorCreate
 from app.schemas.appointment import AppointmentResponse, AppointmentStatusUpdate
 from app.schemas.report import ReportResponse, ReportCreate, ReportUpdateStatus
@@ -329,4 +341,206 @@ def list_audit_logs(
     ]
     return ApiResponse(success=True, data=data)
 
+
+@router.get("/users", response_model=ApiResponse[AdminUserListResponse], dependencies=[strict_admin_auth])
+def list_admin_users(
+    search: Optional[str] = Query(None),
+    role: Optional[str] = Query(None),
+    is_active: Optional[bool] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    query = db.query(User)
+    if search:
+        s = f"%{search.strip().lower()}%"
+        query = query.filter(User.full_name.ilike(s) | User.email.ilike(s) | User.phone.ilike(s))
+    if role and role.upper() != "ALL":
+        query = query.filter(User.role == role.upper())
+    if is_active is not None:
+        query = query.filter(User.is_active == is_active)
+
+    total = query.count()
+    users = query.order_by(User.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+
+    user_items = [
+        AdminUserItem(
+            id=u.id,
+            email=u.email,
+            full_name=u.full_name,
+            phone=u.phone,
+            role=u.role,
+            is_active=u.is_active,
+            created_at=u.created_at,
+            last_login_at=u.last_login_at,
+            failed_login_attempts=u.failed_login_attempts or 0,
+        )
+        for u in users
+    ]
+
+    return ApiResponse(
+        success=True,
+        data=AdminUserListResponse(
+            total=total,
+            page=page,
+            page_size=page_size,
+            users=user_items,
+        ),
+    )
+
+
+@router.patch("/users/{user_id}/status", response_model=ApiResponse[AdminUserItem], dependencies=[strict_admin_auth])
+def update_user_status(
+    user_id: str,
+    payload: AdminUserStatusUpdate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    target_user = db.query(User).filter(User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Guard 1: Prevent disabling the last active administrator
+    if target_user.role in ["ADMIN", "SUPER_ADMIN"] and not payload.is_active:
+        active_admins = db.query(User).filter(
+            User.role.in_(["ADMIN", "SUPER_ADMIN"]),
+            User.is_active == True,
+        ).count()
+        if active_admins <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Operation rejected: Cannot deactivate the last active administrator",
+            )
+
+    # Guard 2: Prevent administrator from deactivating themselves
+    if target_user.id == current_user.id and not payload.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Operation rejected: Administrators cannot deactivate their own account directly",
+        )
+
+    target_user.is_active = payload.is_active
+
+    # If target is DOCTOR, keep doctor_profile in sync
+    if target_user.role == "DOCTOR" and target_user.doctor_profile:
+        target_user.doctor_profile.is_active = payload.is_active
+
+    # If deactivating, revoke all active sessions for that user
+    if not payload.is_active:
+        SecurityPrivacyService.revoke_all_sessions(db, target_user.id)
+
+    db.commit()
+    db.refresh(target_user)
+
+    # Security audit event
+    event_type = "STAFF_ACTIVATION" if payload.is_active else "STAFF_DEACTIVATION"
+    ip = get_client_ip(request)
+    ua = get_client_user_agent(request)
+    SecurityPrivacyService.record_security_event(
+        db=db,
+        event_type=event_type,
+        user_id=target_user.id,
+        user_email=target_user.email,
+        clinic_id=target_user.clinic_id,
+        severity="INFO" if payload.is_active else "WARNING",
+        ip_address=ip,
+        user_agent=ua,
+        details={
+            "action_by_user_id": current_user.id,
+            "action_by_email": current_user.email,
+            "target_user_id": target_user.id,
+            "target_role": target_user.role,
+            "new_status": "ACTIVE" if payload.is_active else "INACTIVE",
+            "reason": payload.reason or "Admin status toggle",
+        },
+    )
+
+    return ApiResponse(
+        success=True,
+        message=f"User account {'activated' if payload.is_active else 'deactivated'} successfully",
+        data=AdminUserItem(
+            id=target_user.id,
+            email=target_user.email,
+            full_name=target_user.full_name,
+            phone=target_user.phone,
+            role=target_user.role,
+            is_active=target_user.is_active,
+            created_at=target_user.created_at,
+            last_login_at=target_user.last_login_at,
+            failed_login_attempts=target_user.failed_login_attempts or 0,
+        ),
+    )
+
+
+@router.get("/security/login-activity", response_model=ApiResponse[LoginActivityListResponse], dependencies=[strict_admin_auth])
+def get_login_activity(
+    search: Optional[str] = Query(None),
+    event_type: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    AUTH_EVENT_TYPES = ["LOGIN_SUCCESS", "LOGIN_FAILED", "LOGOUT", "LOGOUT_ALL", "SUSPICIOUS_LOGIN_ATTEMPT"]
+    query = db.query(SecurityEvent)
+
+    if event_type and event_type.upper() != "ALL":
+        query = query.filter(SecurityEvent.event_type == event_type.upper())
+    else:
+        query = query.filter(SecurityEvent.event_type.in_(AUTH_EVENT_TYPES))
+
+    if search:
+        s = f"%{search.strip().lower()}%"
+        query = query.filter(
+            SecurityEvent.user_email.ilike(s) | SecurityEvent.ip_address.ilike(s)
+        )
+
+    if start_date:
+        try:
+            sd = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+            query = query.filter(SecurityEvent.created_at >= sd)
+        except Exception:
+            pass
+
+    if end_date:
+        try:
+            ed = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+            query = query.filter(SecurityEvent.created_at <= ed)
+        except Exception:
+            pass
+
+    total = query.count()
+    events = (
+        query.order_by(SecurityEvent.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    items = [
+        LoginActivityItem(
+            id=ev.id,
+            user_id=ev.user_id,
+            user_email=ev.user_email,
+            event_type=ev.event_type,
+            severity=ev.severity,
+            ip_address=ev.ip_address,
+            user_agent=ev.user_agent,
+            details=ev.details,
+            created_at=ev.created_at,
+        )
+        for ev in events
+    ]
+
+    return ApiResponse(
+        success=True,
+        data=LoginActivityListResponse(
+            total=total,
+            page=page,
+            page_size=page_size,
+            items=items,
+        ),
+    )
 

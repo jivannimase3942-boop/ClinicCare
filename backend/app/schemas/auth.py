@@ -74,6 +74,7 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     created_at: datetime
+    last_login_at: Optional[datetime] = None
     patient_profile: Optional[PatientProfileResponse] = None
     doctor_profile: Optional[DoctorProfileResponse] = None
     clinic_id: Optional[str] = None

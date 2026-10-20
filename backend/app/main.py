@@ -55,6 +55,8 @@ def ensure_schema_updates():
                 for table, col, col_def in [
                     ("users", "organization_id", "VARCHAR(36)"),
                     ("users", "branch_id", "VARCHAR(36)"),
+                    ("users", "last_login_at", "DATETIME"),
+                    ("users", "failed_login_attempts", "INTEGER DEFAULT 0"),
                     ("clinics", "organization_id", "VARCHAR(36)"),
                     ("email_verifications", "purpose", "VARCHAR(50) DEFAULT 'registration'"),
                 ]:
@@ -69,6 +71,8 @@ def ensure_schema_updates():
                 for table, col, col_def in [
                     ("users", "organization_id", "VARCHAR(36)"),
                     ("users", "branch_id", "VARCHAR(36)"),
+                    ("users", "last_login_at", "TIMESTAMP WITH TIME ZONE"),
+                    ("users", "failed_login_attempts", "INTEGER DEFAULT 0"),
                     ("clinics", "organization_id", "VARCHAR(36)"),
                     ("email_verifications", "purpose", "VARCHAR(50) DEFAULT 'registration'"),
                 ]:

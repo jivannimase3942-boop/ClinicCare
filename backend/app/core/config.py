@@ -65,6 +65,17 @@ class Settings(BaseSettings):
 
     # Database (Supabase / Postgres / SQLite)
     DATABASE_URL: str = "sqlite:///./hospital.db"
+
+    @field_validator("DATABASE_URL", mode="before")
+    def assemble_database_url(cls, v: Optional[str]) -> str:
+        if not v or not str(v).strip():
+            return "sqlite:///./hospital.db"
+        val = str(v).strip()
+        # Cloud providers (Render, Heroku, Supabase) often provide postgres://
+        if val.startswith("postgres://"):
+            return val.replace("postgres://", "postgresql://", 1)
+        return val
+
     SUPABASE_URL: Optional[str] = None
     SUPABASE_KEY: Optional[str] = None
     SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None
