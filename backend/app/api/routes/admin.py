@@ -1,9 +1,12 @@
 import re
 import json
+import logging
 from datetime import date, datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, Request, status
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger("app.api.admin")
 from app.core.config import settings
 from app.db.session import get_db
 from app.schemas.common import ApiResponse
@@ -430,19 +433,30 @@ def sanitize_security_details(raw_details: Optional[str]) -> Optional[str]:
     Explicitly allowlists and redacts security event details before returning to admin client.
     Guarantees that passwords, hashes, OTPs, JWTs, session tokens, API keys,
     and sensitive clinical/personal information cannot leak.
+
+    - For valid JSON objects (dict): preserves only approved keys from ALLOWED_SECURITY_DETAIL_KEYS
+      while dropping sensitive keys and scrubbing sensitive string values. If no approved keys remain,
+      returns "[details omitted]".
+    - For malformed JSON, arbitrary plain-text, JSON arrays, or unknown formats:
+      returns a safe placeholder '[details omitted]' to prevent leaking arbitrary stored text.
     """
     if not raw_details:
         return None
 
-    # Check if raw_details is a JSON string
+    clean_str = str(raw_details).strip()
+    if not clean_str:
+        return None
+
     try:
-        parsed = json.loads(raw_details)
+        parsed = json.loads(clean_str)
         if isinstance(parsed, dict):
             clean_dict = {}
             for k, v in parsed.items():
                 k_lower = str(k).strip().lower()
                 # 1. Reject any sensitive key name
-                if k_lower in _SENSITIVE_KEY_NAMES or any(s in k_lower for s in ("password", "token", "secret", "hash", "otp", "diagno", "prescrip")):
+                if k_lower in _SENSITIVE_KEY_NAMES or any(
+                    s in k_lower for s in ("password", "token", "secret", "hash", "otp", "diagno", "prescrip", "patient", "clinical")
+                ):
                     continue
                 # 2. Key must be in explicit allowlist
                 if k_lower in ALLOWED_SECURITY_DETAIL_KEYS:
@@ -452,20 +466,15 @@ def sanitize_security_details(raw_details: Optional[str]) -> Optional[str]:
                         v_clean = _BEARER_PATTERN.sub("Bearer [REDACTED]", v_clean)
                         v_clean = _API_KEY_PATTERN.sub("[REDACTED_KEY]", v_clean)
                         clean_dict[k_lower] = v_clean
-                    else:
+                    elif isinstance(v, (int, float, bool)) or v is None:
                         clean_dict[k_lower] = v
-            return json.dumps(clean_dict)
-        elif isinstance(parsed, list):
-            return json.dumps([])
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    # If raw plain string, scrub any sensitive tokens or patterns
-    scrubbed = _JWT_PATTERN.sub("[REDACTED_JWT]", str(raw_details))
-    scrubbed = _BEARER_PATTERN.sub("Bearer [REDACTED]", scrubbed)
-    scrubbed = _API_KEY_PATTERN.sub("[REDACTED_KEY]", scrubbed)
-    scrubbed = _PASSWORD_PATTERN.sub(r"\1: [REDACTED]", scrubbed)
-    return scrubbed
+            return json.dumps(clean_dict) if clean_dict else "[details omitted]"
+        else:
+            # JSON arrays, primitives, etc.
+            return "[details omitted]"
+    except Exception:
+        # Malformed JSON or arbitrary plain text: do not return arbitrary stored text
+        return "[details omitted]"
 
 
 @router.patch("/users/{user_id}/status", response_model=ApiResponse[AdminUserItem], dependencies=[strict_admin_auth])
@@ -538,9 +547,15 @@ def update_user_status(
         db.refresh(target_user)
     except Exception as e:
         db.rollback()
+        logger.error(
+            "[Admin] Failed to update user status atomically for user_id=%s by admin_id=%s. Error: %s",
+            user_id,
+            getattr(current_user, "id", "unknown"),
+            type(e).__name__,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Atomic status update failed: {str(e)}",
+            detail="An error occurred while updating user status. All changes have been rolled back.",
         )
 
     return ApiResponse(

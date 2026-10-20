@@ -433,9 +433,10 @@ def test_admin_update_user_status_atomic_rollback(client, seed_test_data, db_ses
     db_session.commit()
 
     # Simulate unexpected failure during security event generation
+    simulated_secret_err = "CRITICAL_INTERNAL_DB_SECRET_FAILURE_12345"
     with patch(
         "app.services.security_privacy_service.SecurityPrivacyService.record_security_event",
-        side_effect=RuntimeError("Simulated audit write failure"),
+        side_effect=RuntimeError(simulated_secret_err),
     ):
         patch_resp = client.patch(
             f"/api/admin/users/{user.id}/status",
@@ -443,7 +444,9 @@ def test_admin_update_user_status_atomic_rollback(client, seed_test_data, db_ses
             headers=headers,
         )
         assert patch_resp.status_code == 500
-        assert "Atomic status update failed" in patch_resp.json()["detail"]
+        # Ensure raw internal exception text is NEVER disclosed to client
+        assert simulated_secret_err not in patch_resp.text
+        assert patch_resp.json()["detail"] == "An error occurred while updating user status. All changes have been rolled back."
 
     # In database: user.is_active must still be True due to complete rollback!
     db_session.expire_all()
@@ -544,3 +547,59 @@ def test_login_rejected_when_branch_is_inactive(client, seed_test_data, db_sessi
     ).first()
     assert event is not None
     assert "tenant_or_branch_inactive" in event.details
+
+
+def test_login_activity_malformed_and_plaintext_details_omitted(client, seed_test_data, db_session):
+    admin_login = client.post("/api/auth/login", json={"email": "admin@hospital.com", "password": "Admin@123"})
+    admin_token = admin_login.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # 1. Plain-text event record containing arbitrary personal/clinical details and credentials
+    plain_text_record = SecurityEvent(
+        user_email="patient@hospital.com",
+        event_type="LOGIN_FAILED",
+        severity="WARNING",
+        ip_address="198.51.100.30",
+        details="Patient Jane Doe (DOB: 1985-05-12) diagnosed with Acute Coronary Syndrome. Prescribed Atorvastatin 40mg. Attempted password: SecretPlainPassword!",
+    )
+
+    # 2. Malformed JSON legacy record
+    malformed_json_record = SecurityEvent(
+        user_email="patient@hospital.com",
+        event_type="LOGIN_FAILED",
+        severity="WARNING",
+        ip_address="198.51.100.31",
+        details='{"error": "Failed login for patient Bob with OTP 987654 and JWT eyJhbGciOi...", unclosed_quote:',
+    )
+
+    # 3. JSON array record
+    array_record = SecurityEvent(
+        user_email="patient@hospital.com",
+        event_type="LOGIN_FAILED",
+        severity="WARNING",
+        ip_address="198.51.100.32",
+        details='[{"diagnosis": "Confidential Clinical Condition", "api_key": "legacy_sample_vendor_key_9988"}]',
+    )
+
+    db_session.add_all([plain_text_record, malformed_json_record, array_record])
+    db_session.commit()
+
+    resp = client.get("/api/admin/security/login-activity", headers=headers)
+    assert resp.status_code == 200
+    resp_text = resp.text
+
+    # None of the sensitive arbitrary strings must be exposed in the HTTP response
+    assert "Jane Doe" not in resp_text
+    assert "Acute Coronary Syndrome" not in resp_text
+    assert "Atorvastatin" not in resp_text
+    assert "SecretPlainPassword!" not in resp_text
+    assert "987654" not in resp_text
+    assert "eyJhbGciOi" not in resp_text
+    assert "Confidential Clinical Condition" not in resp_text
+    assert "legacy_sample_vendor_key_9988" not in resp_text
+
+    # Verify that each of these non-dict records has details safely replaced with "[details omitted]"
+    items_by_id = {item["id"]: item for item in resp.json()["data"]["items"]}
+    assert items_by_id[plain_text_record.id]["details"] == "[details omitted]"
+    assert items_by_id[malformed_json_record.id]["details"] == "[details omitted]"
+    assert items_by_id[array_record.id]["details"] == "[details omitted]"
