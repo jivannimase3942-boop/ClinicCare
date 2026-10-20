@@ -57,6 +57,42 @@ class SMTPDeliveryError(EmailDeliveryError):
     pass
 
 
+# Specific Brevo HTTPS API exception subclasses
+class BrevoNotConfiguredError(EmailNotConfiguredError):
+    """Raised when Brevo API key is missing in an environment that requires it."""
+    pass
+
+
+class BrevoConnectionError(EmailConnectionError):
+    """Raised when network connection or timeout to Brevo API occurs."""
+    pass
+
+
+class BrevoAuthenticationError(EmailAuthenticationError):
+    """Raised when Brevo API rejects credentials with HTTP 401."""
+    pass
+
+
+class BrevoRestrictedSenderError(EmailDeliveryError):
+    """Raised when Brevo sender email is not verified in Brevo console (HTTP 403)."""
+    pass
+
+
+class BrevoValidationError(EmailDeliveryError):
+    """Raised when Brevo rejects payload due to invalid schema or address format (HTTP 400)."""
+    pass
+
+
+class BrevoRateLimitError(EmailDeliveryError):
+    """Raised when Brevo rejects request due to rate limit or daily 300 free email cap (HTTP 429)."""
+    pass
+
+
+class BrevoDeliveryError(EmailDeliveryError):
+    """Raised when Brevo encounters 5xx server errors or unhandled dispatch rejections."""
+    pass
+
+
 # Specific Resend HTTPS API exception subclasses
 class ResendNotConfiguredError(EmailNotConfiguredError):
     """Raised when Resend API key is missing in an environment that requires it."""
@@ -69,12 +105,27 @@ class ResendConnectionError(EmailConnectionError):
 
 
 class ResendAuthenticationError(EmailAuthenticationError):
-    """Raised when Resend API rejects credentials with HTTP 401/403."""
+    """Raised when Resend API rejects credentials with HTTP 401."""
+    pass
+
+
+class ResendRestrictedRecipientError(EmailDeliveryError):
+    """Raised when Resend restricts delivery due to sandbox/unverified sender domain (HTTP 403)."""
+    pass
+
+
+class ResendValidationError(EmailDeliveryError):
+    """Raised when Resend rejects message payload due to invalid schema/address (HTTP 422)."""
+    pass
+
+
+class ResendRateLimitError(EmailDeliveryError):
+    """Raised when Resend rejects request due to rate limit thresholds (HTTP 429)."""
     pass
 
 
 class ResendDeliveryError(EmailDeliveryError):
-    """Raised when Resend rejects message payload (HTTP 422, 429, 5xx)."""
+    """Raised when Resend rejects message payload or encounters 5xx server errors."""
     pass
 
 
@@ -85,11 +136,22 @@ class EmailService:
         if not text:
             return ""
         clean = str(text)
-        if getattr(settings, "RESEND_API_KEY", None) and len(settings.RESEND_API_KEY) > 4:
-            clean = clean.replace(settings.RESEND_API_KEY, "[REDACTED_API_KEY]")
-        if getattr(settings, "SMTP_PASSWORD", None) and len(settings.SMTP_PASSWORD) > 4:
-            clean = clean.replace(settings.SMTP_PASSWORD, "[REDACTED_PASSWORD]")
+        if getattr(settings, "BREVO_API_KEY", None) and len(str(settings.BREVO_API_KEY)) > 4:
+            clean = clean.replace(str(settings.BREVO_API_KEY), "[REDACTED_API_KEY]")
+        if getattr(settings, "RESEND_API_KEY", None) and len(str(settings.RESEND_API_KEY)) > 4:
+            clean = clean.replace(str(settings.RESEND_API_KEY), "[REDACTED_API_KEY]")
+        if getattr(settings, "SMTP_PASSWORD", None) and len(str(settings.SMTP_PASSWORD)) > 4:
+            clean = clean.replace(str(settings.SMTP_PASSWORD), "[REDACTED_PASSWORD]")
+        if getattr(settings, "JWT_SECRET", None) and len(str(settings.JWT_SECRET)) > 4:
+            clean = clean.replace(str(settings.JWT_SECRET), "[REDACTED_SECRET]")
         return clean
+
+    @staticmethod
+    def is_brevo_configured() -> bool:
+        """Checks if Brevo API key and verified sender email are provided."""
+        key = getattr(settings, "BREVO_API_KEY", None)
+        sender = getattr(settings, "BREVO_SENDER_EMAIL", None)
+        return bool(key and str(key).strip() and sender and str(sender).strip() and "@" in str(sender))
 
     @staticmethod
     def is_smtp_configured() -> bool:
@@ -110,26 +172,30 @@ class EmailService:
     def get_active_provider() -> str:
         """
         Resolves the active email transport provider.
-        Supports 'resend' (HTTPS API) and 'smtp' (traditional SMTP).
-        If provider is 'resend' but RESEND_API_KEY is missing while SMTP is configured,
-        falls back to SMTP for backward compatibility.
+        Supports 'brevo' (HTTPS API, single sender verification, free tier),
+        'resend' (HTTPS API), and 'smtp' (traditional SMTP).
+        When EMAIL_PROVIDER=brevo, it strictly uses Brevo HTTPS API and never falls back to Resend SMTP.
         """
-        pref = (getattr(settings, "EMAIL_PROVIDER", None) or "resend").strip().lower()
-        if pref == "smtp":
-            return "smtp"
+        pref = (getattr(settings, "EMAIL_PROVIDER", None) or "brevo").strip().lower()
+        if pref == "brevo":
+            return "brevo"
         if pref == "resend":
             if EmailService.is_resend_configured():
                 return "resend"
             if EmailService.is_smtp_configured():
                 return "smtp"
             return "resend"
+        if pref == "smtp":
+            return "smtp"
         return pref
 
     @staticmethod
     def is_configured() -> bool:
         """Checks if the active email provider is fully configured with required credentials."""
         provider = EmailService.get_active_provider()
-        if provider == "resend":
+        if provider == "brevo":
+            return EmailService.is_brevo_configured()
+        elif provider == "resend":
             return EmailService.is_resend_configured()
         elif provider == "smtp":
             return EmailService.is_smtp_configured()
@@ -139,35 +205,234 @@ class EmailService:
     def get_status() -> Dict[str, Any]:
         """
         Returns safe diagnostic status without exposing secret API keys or passwords.
-        Maintains backward compatibility with legacy SMTP keys while exposing provider-neutral diagnostics.
+        Maintains backward compatibility with legacy SMTP keys while accurately exposing
+        provider-neutral diagnostics.
         """
         configured = EmailService.is_configured()
         provider = EmailService.get_active_provider()
         use_ssl = bool(getattr(settings, "SMTP_USE_SSL", False) or getattr(settings, "SMTP_PORT", 587) == 465)
         use_tls = bool(getattr(settings, "SMTP_USE_TLS", True) and not use_ssl)
 
-        sender = (
-            getattr(settings, "RESEND_FROM_EMAIL", None)
-            or getattr(settings, "SMTP_SENDER", None)
-            or getattr(settings, "SMTP_USER", None)
-            or "alerts@cliniccarehospital.com"
-        )
+        brevo_conf = EmailService.is_brevo_configured()
+        resend_conf = EmailService.is_resend_configured()
+        smtp_conf = EmailService.is_smtp_configured()
 
-        transport = "https" if provider == "resend" else ("ssl" if use_ssl else ("tls" if use_tls else "plain"))
+        if provider == "brevo":
+            sender_email = (getattr(settings, "BREVO_SENDER_EMAIL", None) or "").strip()
+            sender_name = (getattr(settings, "BREVO_SENDER_NAME", None) or "ClinicCare Healthcare").strip()
+            transport = "https"
+            host = "api.brevo.com"
+            port = 443
+
+            missing = []
+            if not getattr(settings, "BREVO_API_KEY", None) or not str(settings.BREVO_API_KEY).strip():
+                missing.append("BREVO_API_KEY")
+            if not sender_email or "@" not in sender_email:
+                missing.append("BREVO_SENDER_EMAIL")
+
+            diagnostic = (
+                "Brevo HTTPS API is configured and ready"
+                if configured
+                else f"Brevo configuration incomplete: missing {', '.join(missing)}"
+            )
+            sender = sender_email if sender_email else (getattr(settings, "SMTP_SENDER", None) or "not_configured")
+
+        elif provider == "resend":
+            sender_email = (getattr(settings, "RESEND_FROM_EMAIL", None) or "").strip()
+            sender_name = (getattr(settings, "SMTP_SENDER_NAME", None) or "ClinicCare Healthcare").strip()
+            transport = "https"
+            host = "api.resend.com"
+            port = 443
+
+            missing = []
+            if not getattr(settings, "RESEND_API_KEY", None) or not str(settings.RESEND_API_KEY).strip():
+                missing.append("RESEND_API_KEY")
+
+            diagnostic = (
+                "Resend HTTPS API is configured and ready"
+                if configured
+                else f"Resend configuration incomplete: missing {', '.join(missing)}"
+            )
+            sender = sender_email if sender_email else "onboarding@resend.dev"
+
+        else:  # smtp
+            sender_email = (getattr(settings, "SMTP_SENDER", None) or getattr(settings, "SMTP_USER", None) or "").strip()
+            sender_name = (getattr(settings, "SMTP_SENDER_NAME", None) or "ClinicCare Healthcare").strip()
+            transport = "ssl" if use_ssl else ("tls" if use_tls else "plain")
+            host = getattr(settings, "SMTP_HOST", None) or None
+            port = getattr(settings, "SMTP_PORT", 587)
+
+            missing = []
+            if not getattr(settings, "SMTP_HOST", None):
+                missing.append("SMTP_HOST")
+            if not getattr(settings, "SMTP_USER", None):
+                missing.append("SMTP_USER")
+            if not getattr(settings, "SMTP_PASSWORD", None):
+                missing.append("SMTP_PASSWORD")
+
+            diagnostic = (
+                "SMTP relay is configured and ready"
+                if configured
+                else f"SMTP configuration incomplete: missing {', '.join(missing)}"
+            )
+            sender = sender_email if sender_email else "alerts@cliniccarehospital.com"
 
         return {
             "configured": configured,
             "provider": provider,
             "sender": sender,
+            "sender_name": sender_name,
             "transport": transport,
             "email_configured": configured,
-            "smtp_configured": EmailService.is_smtp_configured(),
-            "resend_configured": EmailService.is_resend_configured(),
-            "host": getattr(settings, "SMTP_HOST", None) or None,
-            "port": getattr(settings, "SMTP_PORT", 587),
+            "brevo_configured": brevo_conf,
+            "resend_configured": resend_conf,
+            "smtp_configured": smtp_conf,
+            "host": host,
+            "port": port,
             "use_tls": use_tls,
             "use_ssl": use_ssl,
+            "diagnostic": diagnostic,
         }
+
+    @staticmethod
+    def _execute_brevo_post(
+        api_url: str,
+        headers: Dict[str, str],
+        payload: Dict[str, Any],
+        timeout: float,
+    ) -> httpx.Response:
+        """Executes the HTTP POST request to the Brevo API."""
+        with httpx.Client(timeout=timeout) as client:
+            return client.post(api_url, headers=headers, json=payload)
+
+    @staticmethod
+    def _send_via_brevo(
+        to_email: str,
+        subject: str,
+        text_content: str,
+        html_content: Optional[str] = None,
+        from_email: Optional[str] = None,
+        from_name: Optional[str] = None,
+    ) -> bool:
+        """
+        Dispatches email via Brevo (Sendinblue) HTTPS API using httpx over port 443.
+        Supports single sender verification without requiring custom DNS or a purchased domain.
+        Free tier includes 300 free emails/day.
+        """
+        normalized_recipient = to_email.strip().lower()
+        if not EmailService.is_brevo_configured():
+            missing = []
+            if not getattr(settings, "BREVO_API_KEY", None) or not str(settings.BREVO_API_KEY).strip():
+                missing.append("BREVO_API_KEY")
+            sender_check = getattr(settings, "BREVO_SENDER_EMAIL", None)
+            if not sender_check or not str(sender_check).strip() or "@" not in str(sender_check):
+                missing.append("BREVO_SENDER_EMAIL")
+            missing_str = ", ".join(missing) if missing else "required credentials"
+            if settings.is_production:
+                raise BrevoNotConfiguredError(
+                    f"Brevo email service is not configured on this server. "
+                    f"Required environment variable(s) missing: {missing_str}."
+                )
+            print(f"[ClinicCare Email] Notice: Brevo unconfigured ({missing_str}) in {settings.ENVIRONMENT} mode. Skipping dispatch to {normalized_recipient}.")
+            return False
+
+        sender_email = (
+            from_email
+            or getattr(settings, "BREVO_SENDER_EMAIL", None)
+            or getattr(settings, "SMTP_SENDER", None)
+            or "alerts@cliniccarehospital.com"
+        )
+        sender_email = str(sender_email).strip()
+        sender_name = (
+            from_name
+            or getattr(settings, "BREVO_SENDER_NAME", None)
+            or "ClinicCare Healthcare"
+        )
+        sender_name = str(sender_name).strip() if sender_name else "ClinicCare Healthcare"
+
+        api_url = getattr(settings, "BREVO_API_URL", "https://api.brevo.com/v3/smtp/email")
+        timeout = float(getattr(settings, "BREVO_TIMEOUT", 10.0))
+        api_key = settings.BREVO_API_KEY.strip()
+
+        headers = {
+            "api-key": api_key,
+            "Content-Type": "application/json",
+            "accept": "application/json",
+            "User-Agent": "ClinicCare-Healthcare/1.0",
+        }
+
+        payload: Dict[str, Any] = {
+            "sender": {
+                "name": sender_name,
+                "email": sender_email,
+            },
+            "to": [
+                {
+                    "email": normalized_recipient,
+                }
+            ],
+            "subject": subject,
+            "textContent": text_content,
+        }
+        if html_content:
+            payload["htmlContent"] = html_content
+
+        try:
+            resp = EmailService._execute_brevo_post(api_url=api_url, headers=headers, payload=payload, timeout=timeout)
+        except (httpx.TimeoutException, httpx.ConnectTimeout, httpx.ReadTimeout) as e:
+            raise BrevoConnectionError(
+                f"Connection to Brevo API timed out after {timeout}s: {EmailService._sanitize_text(str(e))}"
+            )
+        except (httpx.ConnectError, httpx.NetworkError) as e:
+            raise BrevoConnectionError(
+                f"Failed to connect to Brevo HTTPS API: {EmailService._sanitize_text(str(e))}"
+            )
+        except Exception as e:
+            raise BrevoConnectionError(
+                f"Network error during Brevo email dispatch: {EmailService._sanitize_text(str(e))}"
+            )
+
+        if 200 <= resp.status_code < 300:
+            print(f"[ClinicCare Email] Successfully dispatched email via Brevo to {normalized_recipient}")
+            return True
+
+        # Extract safe error details from response body without logging sensitive headers or payload
+        err_msg = ""
+        try:
+            err_json = resp.json()
+            if isinstance(err_json, dict):
+                err_msg = err_json.get("message") or err_json.get("code") or str(err_json)
+            else:
+                err_msg = resp.text[:200]
+        except Exception:
+            err_msg = resp.text[:200]
+        err_msg = EmailService._sanitize_text(err_msg)
+
+        if resp.status_code == 401:
+            raise BrevoAuthenticationError(
+                f"Brevo authentication failed (HTTP 401): {err_msg or 'Invalid API key or unauthorized permission'}"
+            )
+        elif resp.status_code == 403:
+            print(f"[ClinicCare Email] Brevo sender restriction (HTTP 403): {err_msg}")
+            raise BrevoRestrictedSenderError(
+                f"Brevo sender not verified (HTTP 403): {err_msg or 'The sender email address must be verified in the Brevo console under Senders & IPs'}"
+            )
+        elif resp.status_code == 400:
+            raise BrevoValidationError(
+                f"Brevo validation error (HTTP 400): {err_msg or 'Invalid recipient or message structure'}"
+            )
+        elif resp.status_code == 429:
+            raise BrevoRateLimitError(
+                f"Brevo rate limit or daily quota reached (HTTP 429): {err_msg or 'Daily limit of 300 emails reached or request throttled'}"
+            )
+        elif 500 <= resp.status_code < 600:
+            raise BrevoDeliveryError(
+                f"Brevo service error (HTTP {resp.status_code}): {err_msg or 'Provider server failure'}"
+            )
+        else:
+            raise BrevoDeliveryError(
+                f"Brevo rejected email dispatch with HTTP {resp.status_code}: {err_msg}"
+            )
 
     @staticmethod
     def _execute_resend_post(
@@ -265,17 +530,23 @@ class EmailService:
             err_msg = resp.text[:200]
         err_msg = EmailService._sanitize_text(err_msg)
 
-        if resp.status_code in (401, 403):
+        if resp.status_code == 401:
             raise ResendAuthenticationError(
-                f"Resend authentication failed (HTTP {resp.status_code}): {err_msg or 'Invalid API key or unauthorized permission'}"
+                f"Resend authentication failed (HTTP 401): {err_msg or 'Invalid API key or unauthorized permission'}"
+            )
+        elif resp.status_code == 403:
+            # Resend sandbox restricts recipients when using onboarding@resend.dev or unverified domains
+            print(f"[ClinicCare Email] Provider recipient restriction (HTTP 403): {err_msg}")
+            raise ResendRestrictedRecipientError(
+                f"Resend recipient delivery restricted (HTTP 403): {err_msg or 'A verified custom sender domain is required to deliver to external inboxes'}"
             )
         elif resp.status_code == 422:
-            raise ResendDeliveryError(
-                f"Resend validation error (HTTP 422): {err_msg or 'Invalid sender domain or recipient address'}"
+            raise ResendValidationError(
+                f"Resend validation error (HTTP 422): {err_msg or 'Invalid sender domain or recipient address format'}"
             )
         elif resp.status_code == 429:
-            raise ResendDeliveryError(
-                f"Resend rate limit exceeded (HTTP 429): {err_msg or 'Too many requests; rate limit reached'}"
+            raise ResendRateLimitError(
+                f"Resend rate limit exceeded (HTTP 429): {err_msg or 'Too many email requests; rate limit reached'}"
             )
         elif 500 <= resp.status_code < 600:
             raise ResendDeliveryError(
@@ -387,7 +658,16 @@ class EmailService:
             raise ValueError("Recipient email address cannot be empty")
 
         provider = EmailService.get_active_provider()
-        if provider == "resend":
+        if provider == "brevo":
+            return EmailService._send_via_brevo(
+                to_email=normalized_recipient,
+                subject=subject,
+                text_content=text_content,
+                html_content=html_content,
+                from_email=from_email,
+                from_name=from_name,
+            )
+        elif provider == "resend":
             return EmailService._send_via_resend(
                 to_email=normalized_recipient,
                 subject=subject,

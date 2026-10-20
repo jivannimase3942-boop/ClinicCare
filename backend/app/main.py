@@ -56,6 +56,7 @@ def ensure_schema_updates():
                     ("users", "organization_id", "VARCHAR(36)"),
                     ("users", "branch_id", "VARCHAR(36)"),
                     ("clinics", "organization_id", "VARCHAR(36)"),
+                    ("email_verifications", "purpose", "VARCHAR(50) DEFAULT 'registration'"),
                 ]:
                     try:
                         res = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
@@ -69,6 +70,7 @@ def ensure_schema_updates():
                     ("users", "organization_id", "VARCHAR(36)"),
                     ("users", "branch_id", "VARCHAR(36)"),
                     ("clinics", "organization_id", "VARCHAR(36)"),
+                    ("email_verifications", "purpose", "VARCHAR(50) DEFAULT 'registration'"),
                 ]:
                     try:
                         conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_def}"))
@@ -232,8 +234,9 @@ def health_check():
         "whatsapp_configured": bool(settings.WA_PHONE_NUMBER_ID and settings.WA_ACCESS_TOKEN),
         "smtp_configured": bool(email_diag.get("smtp_configured", False)),
         "resend_configured": bool(email_diag.get("resend_configured", False)),
+        "brevo_configured": bool(email_diag.get("brevo_configured", False)),
         "email_configured": bool(email_diag.get("configured", False)),
-        "email_provider": email_diag.get("provider", "resend"),
+        "email_provider": email_diag.get("provider", "brevo"),
     }
 
 

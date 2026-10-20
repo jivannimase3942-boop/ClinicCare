@@ -89,8 +89,14 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
 
-    # Email & Alerts Configuration (Resend HTTPS API / SMTP)
-    EMAIL_PROVIDER: str = "resend"
+    # Email & Alerts Configuration (Brevo HTTPS API / Resend HTTPS API / SMTP)
+    EMAIL_PROVIDER: str = "brevo"
+    BREVO_API_KEY: Optional[str] = None
+    BREVO_SENDER_EMAIL: Optional[str] = None
+    BREVO_SENDER_NAME: str = "ClinicCare Healthcare"
+    BREVO_API_URL: str = "https://api.brevo.com/v3/smtp/email"
+    BREVO_TIMEOUT: float = 10.0
+
     RESEND_API_KEY: Optional[str] = None
     RESEND_FROM_EMAIL: Optional[str] = None
     RESEND_API_URL: str = "https://api.resend.com/emails"
