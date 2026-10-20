@@ -61,21 +61,39 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
 
 def get_client_ip(request: Any) -> str:
     """
-    Extracts the client IP from request headers or socket address safely.
-    Checks CF-Connecting-IP, X-Forwarded-For, X-Real-IP, and client host.
+    Extracts the client IP safely from trusted proxy headers or socket address.
+    Priority order:
+    1. Render-Proxy-Client-IP: Set exclusively by Render's edge proxy; cannot be spoofed by clients.
+    2. CF-Connecting-IP: Set by Cloudflare's edge proxy.
+    3. True-Client-IP: Set by enterprise CDNs/Cloudflare.
+    4. X-Real-IP: Set by upstream reverse proxy.
+    5. X-Forwarded-For: Leftmost client IP if available.
+    6. Direct socket host (request.client.host).
     """
     if not request:
         return "127.0.0.1"
     headers = getattr(request, "headers", {})
-    cf_ip = headers.get("CF-Connecting-IP")
-    if cf_ip:
+    # 1. Render proxy unforgeable header
+    render_ip = headers.get("Render-Proxy-Client-IP") or headers.get("render-proxy-client-ip")
+    if render_ip and render_ip.strip():
+        return render_ip.strip()
+    # 2. Cloudflare unforgeable header
+    cf_ip = headers.get("CF-Connecting-IP") or headers.get("cf-connecting-ip")
+    if cf_ip and cf_ip.strip():
         return cf_ip.strip()
-    forwarded = headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    real_ip = headers.get("X-Real-IP")
-    if real_ip:
+    # 3. True-Client-IP
+    true_ip = headers.get("True-Client-IP") or headers.get("true-client-ip")
+    if true_ip and true_ip.strip():
+        return true_ip.strip()
+    # 4. Upstream single-hop proxy
+    real_ip = headers.get("X-Real-IP") or headers.get("x-real-ip")
+    if real_ip and real_ip.strip():
         return real_ip.strip()
+    # 5. X-Forwarded-For
+    forwarded = headers.get("X-Forwarded-For") or headers.get("x-forwarded-for")
+    if forwarded and forwarded.strip():
+        return forwarded.split(",")[0].strip()
+    # 6. Direct socket peer
     client = getattr(request, "client", None)
     if client and getattr(client, "host", None):
         return client.host
